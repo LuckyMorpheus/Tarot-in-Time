@@ -1,0 +1,898 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Tarot in Time v7</title>
+<meta name="description" content="A tarot autobattler prototype. Playtest build.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IM+Fell+English+SC&family=Alegreya:ital,wght@0,400;0,600;1,400&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: a reader's table. Narrow ledger (the Wanderer) on the left, the spread / battle on the right.
+   Palette from the setting doc: gold is what is fixed and real, blue is time and what can be lost, violet is blood, the price paid. Single committed night palette. */
+:root{
+  --ink:#0E1118; --panel:#161C28; --panel2:#1F2A3F; --line:#2E3A52;
+  --fg:#E8E1CF; --muted:#8F9AB0;
+  --gilt:#D4A94F; --gilt-dim:#8A6D35;
+  --blood:#9B4DCA; --blood-lt:#C49AE4; --aether:#6FA8C7; --verdant:#8fbf7d;
+  --spell:#A9BCD8; --card:#202A3D; --card-end:#121722;
+  --f-display:"IM Fell English SC","Iowan Old Style",Georgia,serif;
+  --f-body:"Alegreya","Iowan Old Style",Georgia,serif;
+  --f-mono:"IBM Plex Mono",ui-monospace,Menlo,Consolas,monospace;
+  color-scheme:dark;
+}
+html,body{background:var(--ink);color:var(--fg)}
+body{font-family:var(--f-body);font-size:16px;line-height:1.5;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:20px 40px;
+  background-image:radial-gradient(ellipse at 70% -10%,#1C2740 0%,transparent 60%);background-attachment:fixed}
+*{box-sizing:border-box}
+h1,h2,h3{font-family:var(--f-display);font-weight:400;text-wrap:balance;margin:0}
+button{font:inherit;cursor:pointer}
+button:focus-visible{outline:2px solid var(--aether);outline-offset:2px}
+.wrap{max-width:1100px;margin:0 auto;display:flex;flex-direction:column;gap:20px}
+.top{display:flex;flex-wrap:wrap;align-items:flex-end;justify-content:space-between;gap:12px;border-bottom:1px solid var(--line);padding-bottom:14px}
+.top h1{font-size:clamp(1.6rem,4vw,2.3rem);color:var(--gilt);line-height:1}
+.top .sub{color:var(--muted);font-style:italic;font-size:.95rem}
+.track{display:flex;gap:6px;align-items:center;font-family:var(--f-display);flex-wrap:wrap}
+.track span{min-width:38px;padding:4px 8px;text-align:center;border:1px solid var(--line);border-radius:3px;color:var(--muted);font-size:.95rem}
+.track span.done{color:var(--gilt-dim);border-color:var(--gilt-dim)}
+.track span.now{color:var(--ink);background:var(--gilt);border-color:var(--gilt)}
+.grid{display:grid;grid-template-columns:280px 1fr;gap:22px;align-items:start}
+.grid>*{min-width:0}
+@media (max-width:800px){.grid{grid-template-columns:1fr}#hud{order:2}}
+#hud{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:16px;display:flex;flex-direction:column;gap:16px}
+.lbl{font-family:var(--f-display);font-size:.8rem;letter-spacing:.12em;color:var(--muted);text-transform:uppercase;margin-bottom:6px}
+.hp-row{display:flex;justify-content:space-between;font-family:var(--f-mono);font-size:.85rem;font-variant-numeric:tabular-nums;margin-bottom:4px}
+.bar{height:9px;background:var(--panel2);border-radius:2px;overflow:hidden;border:1px solid var(--line)}
+.bar>i{display:block;height:100%;background:var(--blood);transition:width .3s ease}
+.bar.foe>i{background:var(--aether)}
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-top:10px}
+.stat{text-align:center;background:var(--panel2);border-radius:3px;padding:5px 2px}
+.stat b{display:block;font-family:var(--f-mono);font-weight:500;font-variant-numeric:tabular-nums}
+.stat small{font-size:.7rem;color:var(--muted);letter-spacing:.08em}
+.gold{font-family:var(--f-mono);color:var(--gilt);font-variant-numeric:tabular-nums}
+.list{display:flex;flex-direction:column;gap:6px;font-size:.92rem}
+.li{display:flex;justify-content:space-between;gap:8px;align-items:baseline}
+.li .fx{color:var(--muted);font-size:.82rem;text-align:right}
+.li.off{opacity:.45;text-decoration:line-through}
+.empty{color:var(--muted);font-style:italic;font-size:.88rem}
+.pill{font-family:var(--f-mono);font-size:.68rem;padding:1px 6px;border-radius:9px;border:1px solid currentColor;white-space:nowrap}
+.pill.fixed,.pill.written,.pill.omen{color:var(--gilt)} .pill.loose{color:var(--aether)} .pill.gone,.pill.dormant{color:var(--muted)}
+#stage{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:clamp(16px,3vw,28px);min-height:420px;display:flex;flex-direction:column;gap:18px}
+#stage h2{font-size:clamp(1.4rem,3vw,1.9rem);color:var(--gilt)}
+#stage p{margin:0;max-width:64ch}
+.lead{color:var(--muted);font-style:italic}
+.actions{display:flex;flex-wrap:wrap;gap:10px;margin-top:auto;padding-top:8px}
+.btn{background:var(--gilt);color:var(--ink);border:1px solid var(--gilt);padding:9px 18px;border-radius:3px;font-family:var(--f-display);font-size:1.02rem;letter-spacing:.03em}
+.btn:hover{filter:brightness(1.08)}
+.btn:disabled{opacity:.4;cursor:not-allowed;filter:none}
+.btn.ghost{background:transparent;color:var(--fg);border-color:var(--line)}
+.btn.ghost:hover{border-color:var(--gilt-dim)}
+.btn.sm{padding:5px 11px;font-size:.86rem}
+.btn.on{background:var(--gilt);color:var(--ink);border-color:var(--gilt)}
+.btn.blood{background:transparent;color:var(--blood-lt);border-color:color-mix(in srgb,var(--blood) 60%,var(--line))}
+.spread{display:flex;gap:clamp(10px,3vw,26px);justify-content:center;flex-wrap:wrap}
+.slot{display:flex;flex-direction:column;align-items:center;gap:7px;width:clamp(100px,27vw,150px)}
+/* Reading spread: the three columns share their rows (title, note, card, effect, controls),
+   so each row is as tall as its tallest column and the buttons always start level. */
+@supports (grid-template-rows:subgrid){
+  .spread.player{display:grid;grid-template-columns:repeat(3,clamp(100px,27vw,150px));justify-content:center;column-gap:clamp(10px,3vw,26px);row-gap:7px}
+  .spread.player .slot{display:grid;grid-row:span 5;grid-template-rows:subgrid;justify-items:center;align-content:start;width:auto;row-gap:7px}
+  .spread.player .slot>*{width:100%}
+  .spread.player .slot>.pos{width:auto}
+}
+.pos{font-family:var(--f-display);color:var(--fg);font-size:.95rem;letter-spacing:.04em}
+.posnote{font-size:.74rem;color:var(--muted);text-align:center;line-height:1.3;min-height:3.9em}
+.tarot{width:100%;aspect-ratio:7/12;perspective:900px}
+.tarot .inner{position:relative;width:100%;height:100%;transition:transform .7s cubic-bezier(.3,.7,.3,1);transform-style:preserve-3d}
+.tarot.down .inner{transform:rotateY(180deg)}
+.face{position:absolute;inset:0;backface-visibility:hidden;-webkit-backface-visibility:hidden;border-radius:7px;border:1px solid var(--gilt)}
+/* Fallback for browsers that flatten 3D and ignore backface-visibility:
+   swap which face is visible at the midpoint of the flip, so a face-down card never shows its face. */
+.tarot .front{transform:rotateY(0deg);visibility:visible;transition:visibility 0s linear .3s}
+.tarot.down .front{visibility:hidden;transition:visibility 0s linear .3s}
+.tarot .back{visibility:hidden;backface-visibility:visible;-webkit-backface-visibility:visible;transition:visibility 0s linear .3s}
+.tarot.down .back{visibility:visible;transition:visibility 0s linear .3s}
+.back{transform:rotateY(180deg);background:
+  radial-gradient(circle at 50% 50%,transparent 0 22%,var(--gilt-dim) 22.5% 23.5%,transparent 24% 36%,var(--gilt-dim) 36.5% 37%,transparent 37.5%),
+  repeating-conic-gradient(from 0deg at 50% 50%,var(--panel2) 0 7.5deg,var(--panel) 7.5deg 15deg);
+  box-shadow:inset 0 0 0 5px var(--ink),inset 0 0 0 6px var(--gilt-dim)}
+.front{background:linear-gradient(170deg,var(--card),var(--card-end));box-shadow:inset 0 0 0 4px var(--ink),inset 0 0 0 5px var(--gilt-dim)}
+.tarot.foecard .front{background:linear-gradient(170deg,#2A2238,var(--card-end));border-color:var(--blood)}
+.tarot.foecard .art .num,.tarot.foecard .art .glyph{color:var(--blood-lt)}
+.tarot.ex .front{border-color:var(--aether);background:linear-gradient(170deg,#1E3550,var(--card-end) 70%);box-shadow:inset 0 0 0 4px var(--ink),inset 0 0 0 5px var(--aether),0 0 14px color-mix(in srgb,var(--aether) 35%,transparent)}
+.tarot.ex .art .glyph,.tarot.ex .art .num{color:var(--aether)}
+.fuse{display:flex;gap:16px;flex-wrap:wrap}
+.fuse .ware{width:clamp(120px,24vw,150px)}
+.art{height:100%;display:flex;flex-direction:column;justify-content:space-between;align-items:center;padding:12px 6px;text-align:center}
+.tarot.rev .art{transform:rotate(180deg)}
+.art .num{font-family:var(--f-display);color:var(--gilt);font-size:.95rem}
+.art .glyph{font-size:clamp(2rem,6vw,2.8rem);color:var(--gilt);line-height:1}
+.art .nm{font-family:var(--f-display);font-size:clamp(.72rem,2vw,.88rem);line-height:1.15}
+.mini .tarot{width:74px}
+.mini .art{padding:7px 3px}.mini .art .glyph{font-size:1.5rem}.mini .art .num{font-size:.75rem}.mini .art .nm{font-size:.66rem}
+.meaning{text-align:center;font-size:.86rem;min-height:2.6em}
+.meaning em{display:block;color:var(--blood-lt);font-style:normal;font-family:var(--f-mono);font-size:.7rem;letter-spacing:.08em}
+.ctrls{display:flex;flex-direction:column;gap:6px;align-items:stretch;width:100%}
+.anchor-note{font-family:var(--f-mono);font-size:.82rem;color:var(--muted);text-align:center}
+.anchor-note b{color:var(--gilt);font-weight:500}
+.ctrls .anchor-note{padding:5px 0;border:1px solid transparent;line-height:calc(.86rem * 1.5);white-space:nowrap}
+.meaning em.up{visibility:hidden}
+.omens{border:1px solid var(--gilt-dim);border-radius:5px;padding:10px 14px;background:color-mix(in srgb,var(--gilt) 6%,var(--panel));display:flex;flex-direction:column;gap:4px}
+.omens .o{display:flex;gap:10px;flex-wrap:wrap;align-items:baseline}
+.omens .o b{font-family:var(--f-display);font-weight:400;color:var(--gilt)}
+.omens .o span{font-size:.88rem;color:var(--muted)}
+.bossread{display:flex;gap:14px;align-items:center;flex-wrap:wrap;border:1px solid color-mix(in srgb,var(--aether) 50%,var(--line));border-radius:5px;padding:10px 14px}
+.bossread .t{flex:1 1 220px;font-size:.9rem;min-width:0}
+.bossread .t b{font-family:var(--f-display);font-weight:400;color:var(--aether)}
+.duel{display:grid;grid-template-columns:1fr auto 1fr;gap:14px;align-items:start}
+.duel .side h3{font-size:1.15rem;margin-bottom:6px}
+.duel .vs{font-family:var(--f-display);color:var(--muted);padding-top:4px}
+.duel .side.foe{text-align:right}
+@media (max-width:480px){.duel{grid-template-columns:1fr}.duel .vs{display:none}.duel .side.foe{text-align:left}}
+.bears{font-size:.82rem;color:var(--blood-lt);margin-top:4px}
+.drift{font-family:var(--f-mono);font-size:.8rem;color:var(--aether);border:1px dashed color-mix(in srgb,var(--aether) 50%,transparent);padding:6px 10px;border-radius:3px}
+.log{font-family:var(--f-mono);font-size:.82rem;background:var(--ink);border:1px solid var(--line);border-radius:4px;padding:10px 12px;height:270px;overflow-y:auto;display:flex;flex-direction:column;gap:3px}
+.log div{line-height:1.4}
+.log .round{color:var(--muted);margin-top:6px;font-size:.72rem;letter-spacing:.1em;text-transform:uppercase}
+.log .foe{color:var(--blood-lt)}.log .time{color:var(--aether)}.log .card{color:var(--gilt)}.log .spell{color:var(--spell)}.log .win{color:var(--verdant)}.log .lose{color:var(--blood)}.log .sys{color:var(--muted);font-style:italic}.log .curse{color:var(--blood-lt)}
+.item{border:1px solid var(--line);border-radius:5px;padding:14px;background:var(--panel2);display:flex;flex-direction:column;gap:4px;max-width:440px;min-width:0}
+.item .k{font-family:var(--f-mono);font-size:.72rem;color:var(--muted);letter-spacing:.1em;text-transform:uppercase}
+.item .n{font-family:var(--f-display);font-size:1.2rem}
+.item .d{color:var(--gilt);font-size:.92rem}
+.item.cursed{border-color:color-mix(in srgb,var(--blood) 60%,var(--line));background:linear-gradient(160deg,color-mix(in srgb,var(--blood) 12%,var(--panel2)),var(--panel2))}
+.cmp{font-size:.85rem;color:var(--muted)}
+.ctxt{color:var(--blood-lt);font-size:.85rem}
+.twist{color:var(--muted);font-size:.85rem;font-style:italic}
+.tier{font-family:var(--f-mono);font-size:.68rem;letter-spacing:.06em;white-space:nowrap}
+.tier.t0{color:var(--muted)}.tier.t1{color:var(--fg)}.tier.t2{color:var(--gilt)}.tier.t3{color:var(--aether)}
+.curse{font-family:var(--f-mono);font-size:.68rem;letter-spacing:.06em;color:var(--blood-lt);white-space:nowrap}
+.wares{display:flex;gap:16px;flex-wrap:wrap}
+.ware{display:flex;flex-direction:column;align-items:center;gap:6px;width:clamp(110px,22vw,140px)}
+.ware .rv{font-size:.76rem;color:var(--muted);text-align:center}
+.ware .anchor-note{padding:5px 0;border:1px solid transparent;line-height:calc(.86rem * 1.5)}
+/* Card offers (shop, draft, fusion): cards in a row share their rows (card, upright, reversed, button),
+   so text of any length keeps the buttons level. */
+@supports (grid-template-rows:subgrid){
+  .wares,.fuse{display:grid;grid-template-columns:repeat(auto-fill,clamp(110px,22vw,140px));column-gap:16px;row-gap:6px}
+  .fuse{grid-template-columns:repeat(auto-fill,clamp(120px,24vw,150px))}
+  .wares .ware,.fuse .ware{display:grid;grid-row:span 4;grid-template-rows:subgrid;justify-items:center;align-content:start;width:auto;row-gap:6px;margin-bottom:10px}
+  .wares .ware>.tarot,.fuse .ware>.tarot,.wares .ware>.meaning,.fuse .ware>.meaning{width:100%}
+}
+.row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.burn{display:flex;flex-wrap:wrap;gap:6px}
+.sec{display:flex;flex-direction:column;gap:10px;border-top:1px solid var(--line);padding-top:14px}
+.forge{display:flex;flex-direction:column;gap:8px}
+.forge .li{background:var(--panel2);border-radius:4px;padding:8px 10px;flex-wrap:wrap;align-items:center}
+.forge .li>span:first-child{display:flex;flex-direction:column;gap:2px;min-width:0}
+.claim{display:flex;gap:18px;align-items:center;flex-wrap:wrap}
+.claim>.tarot{width:120px;flex:none}
+.claim .t{flex:1 1 240px;min-width:0;display:flex;flex-direction:column;gap:6px}
+.how{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,17rem),1fr));gap:16px 24px;margin:0;font-size:.95rem}
+.how>div{display:flex;flex-direction:column;gap:3px;min-width:0;padding-top:10px;border-top:1px solid var(--line)}
+.how dt{font-family:var(--f-display);color:var(--gilt);font-size:1.05rem}
+.how dd{margin:0;max-width:60ch}
+/* With the ledger hidden (title screen), the stage takes the full width. */
+.grid:has(>#hud[hidden]){grid-template-columns:1fr}
+.echo{display:flex;gap:14px;align-items:center;flex-wrap:wrap;border:1px dashed var(--gilt-dim);border-radius:5px;padding:10px 14px}
+.echo .t{flex:1 1 220px;font-size:.9rem;min-width:0}
+.echo .t b{font-family:var(--f-display);font-weight:400;color:var(--gilt)}
+.moves{display:flex;gap:6px;justify-content:center}
+.moves .btn{flex:1}
+.decks{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,260px),1fr));gap:14px}
+.deckc{border:1px solid var(--line);border-radius:6px;padding:14px;background:var(--panel2);display:flex;flex-direction:column;gap:10px;min-width:0}
+.deckc h3{color:var(--gilt);font-size:1.2rem}
+.deckc .row{gap:6px}
+.deckc .mini .tarot{width:58px}
+.aff{color:var(--aether);font-size:.85rem}
+.items{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,240px),1fr));gap:14px;max-width:900px}
+.items .item{max-width:none}
+@media (prefers-reduced-motion:reduce){.tarot .inner,.tarot .face,.bar>i{transition:none!important}}
+/* Playtest feedback (end-of-run screen) */
+.fb{border-top:1px solid var(--line);padding-top:14px;display:flex;flex-direction:column;gap:10px;max-width:560px}
+.fb textarea{font:inherit;font-size:.95rem;background:var(--ink);color:var(--fg);border:1px solid var(--line);border-radius:4px;padding:10px 12px;min-height:96px;resize:vertical;width:100%}
+.fb textarea:focus-visible{outline:2px solid var(--aether);outline-offset:1px}
+.fb .thanks{color:var(--verdant);font-style:italic}
+.privacy{font-size:.8rem;color:var(--muted);font-style:italic}
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <header class="top">
+    <div><h1>Tarot in Time</h1><div class="sub">A tarot autobattler prototype · v7</div></div>
+    <div class="track" id="track"></div>
+  </header>
+  <div class="grid">
+    <aside id="hud" aria-label="Your wanderer"></aside>
+    <section id="stage" aria-live="polite"></section>
+  </div>
+</div>
+
+<script>
+/* ================= playtest logging =================
+   Paste your Supabase Project URL and publishable (or legacy anon) key below.
+   Until you do, logging is switched off and the game plays normally.
+   The key is meant to be public; the database only allows inserts (see supabase/schema.sql). */
+const PLAYTEST={
+  url:'https://uxaxpahzoxadjtasxepn.supabase.co',
+  key:'sb_publishable_QmzEaBdh7iLGcr-T4rM7_A_0dTZGjIx',
+  build:'v7',            // bump this whenever you ship a balance change, so results stay comparable
+};
+const T=(()=>{
+  const on=!PLAYTEST.url.includes('YOUR-PROJECT')&&!PLAYTEST.key.startsWith('YOUR_');
+  const uuid=()=>{try{return crypto.randomUUID()}catch(e){return'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g,c=>{const r=Math.random()*16|0;return(c==='x'?r:(r&3|8)).toString(16)})}};
+  let player=null;
+  try{player=localStorage.getItem('tit_player');if(!player){player=uuid();localStorage.setItem('tit_player',player)}}catch(e){player=uuid()}
+  const headers=()=>{const h={'Content-Type':'application/json',apikey:PLAYTEST.key,Prefer:'return=minimal'};
+    if(PLAYTEST.key.startsWith('eyJ'))h.Authorization='Bearer '+PLAYTEST.key;return h};
+  function send(table,row){
+    if(!on)return Promise.resolve(false);
+    return fetch(`${PLAYTEST.url.replace(/\/$/,'')}/rest/v1/${table}`,{method:'POST',headers:headers(),body:JSON.stringify(row),keepalive:true})
+      .then(r=>r.ok).catch(()=>false);   // logging must never break the game
+  }
+  return{on,player,uuid,send};
+})();
+/* Called once when a run ends. */
+function logRun(won){
+  if(S.logged)return;S.logged=true;
+  S.runId=T.uuid();
+  T.send('runs',{
+    run_id:S.runId,player_id:T.player,build:PLAYTEST.build,source:location.hostname||'local',
+    start_deck:S.deckName||null,draft_pick:S.draftPick||null,
+    floor_reached:S.floor,won,died_to:won?null:(S.foe&&S.foe.name)||null,
+    kills:S.kills+(won?1:0),gold:S.gold,
+    deck:S.deck,readings:S.readLog||[],
+    gear:Object.values(S.gear).filter(Boolean).map(g=>({slot:g.slot,base:g.base,tier:g.tier,cursed:!!g.cursed,aff:g.aff})),
+    duration_s:S.startedAt?Math.round((Date.now()-S.startedAt)/1000):null,
+  });
+}
+function sendFeedback(){
+  const msg=($('#fbMsg')?.value||'').trim().slice(0,2000);
+  if(!msg&&!S.interest)return;
+  T.send('feedback',{run_id:S.runId||null,player_id:T.player,build:PLAYTEST.build,interest:S.interest||null,message:msg||null});
+  S.fbSent=true;render();
+}
+
+/* ================= data (v7) ================= */
+const CARDS={
+  fool:{num:'0',name:'The Fool',glyph:'○',up:{txt:'+15 gold',inst:{gold:15}},rv:{txt:'Heal 15% of max HP',inst:{heal:.15}}},
+  magician:{num:'I',name:'The Magician',glyph:'∞',up:{fx:{atk:3}},rv:{fx:{crit:.18}}},
+  priestess:{num:'II',name:'The High Priestess',glyph:'☾',up:{fx:{still:2,def:1}},rv:{fx:{crit:.2,def:-1}}},
+  empress:{num:'III',name:'The Empress',glyph:'♀',up:{fx:{regen:1,maxHp:8}},rv:{fx:{atk:2,maxHp:6}}},
+  emperor:{num:'IV',name:'The Emperor',glyph:'♔',up:{fx:{def:2,maxHp:5}},rv:{fx:{atk:2,spd:1}}},
+  hierophant:{num:'V',name:'The Hierophant',glyph:'✠',up:{fx:{reflect:.15,def:1}},rv:{fx:{exec:.12,atk:1}}},
+  lovers:{num:'VI',name:'The Lovers',glyph:'♡',up:{fx:{maxHp:6,regen:1}},rv:{fx:{atk:2,spd:1}}},
+  chariot:{num:'VII',name:'The Chariot',glyph:'△',up:{fx:{spd:3}},rv:{fx:{def:2,spd:-1}}},
+  strength:{num:'VIII',name:'Strength',glyph:'✶',up:{fx:{maxHp:10}},rv:{fx:{atk:3,maxHp:-4}}},
+  hermit:{num:'IX',name:'The Hermit',glyph:'✧',up:{fx:{def:2}},rv:{fx:{regen:1,still:1}}},
+  wheel:{num:'X',name:'Wheel of Fortune',glyph:'⊕',up:{fx:{atk:2,crit:.1}},rv:{fx:{def:2,reflect:.15}}},
+  justice:{num:'XI',name:'Justice',glyph:'◇',up:{fx:{reflect:.3}},rv:{fx:{exec:.12}}},
+  hanged:{num:'XII',name:'The Hanged Man',glyph:'⊥',up:{fx:{still:3}},rv:{fx:{def:3,spd:-2}}},
+  death:{num:'XIII',name:'Death',glyph:'⊗',up:{fx:{exec:.2}},rv:{fx:{revive:.25}}},
+  temperance:{num:'XIV',name:'Temperance',glyph:'▽',up:{txt:'Heal 40% of max HP',inst:{heal:.4}},rv:{fx:{regen:2}}},
+  devil:{num:'XV',name:'The Devil',glyph:'♆',up:{fx:{atk:6,bleed:1}},rv:{fx:{def:2,regen:1}}},
+  tower:{num:'XVI',name:'The Tower',glyph:'▲',up:{fx:{atk:5,def:-2}},rv:{fx:{def:3,atk:-1}}},
+  star:{num:'XVII',name:'The Star',glyph:'★',up:{fx:{regen:2}},rv:{fx:{maxHp:8}}},
+  moon:{num:'XVIII',name:'The Moon',glyph:'☽',up:{fx:{crit:.15,spd:2}},rv:{fx:{still:2,regen:1}}},
+  sun:{num:'XIX',name:'The Sun',glyph:'☉',up:{fx:{atk:2,def:1}},rv:{fx:{spd:2,crit:.08}}},
+  judgement:{num:'XX',name:'Judgement',glyph:'✷',up:{fx:{revive:.4}},rv:{fx:{atk:2,exec:.08}}},
+  world:{num:'XXI',name:'The World',glyph:'◎',up:{txt:'+1 anchor this reading',inst:{anchor:1}},rv:{txt:'+1 recast this reading',inst:{recast:1}}},
+};
+/* Exalted (fused) cards: three copies fuse into one. Each face is doubled; a few uprights are hand-tuned. */
+const EXALT_OVERRIDE={
+  fool:{up:{txt:'+30 gold',inst:{gold:30}},rv:{txt:'Heal 30% of max HP',inst:{heal:.3}}},
+  temperance:{up:{txt:'Heal 70% of max HP',inst:{heal:.7}}},
+  world:{up:{txt:'+2 anchors this reading',inst:{anchor:2}},rv:{txt:'+2 recasts this reading',inst:{recast:2}}},
+  death:{up:{fx:{exec:.35}}}, judgement:{up:{fx:{revive:.7}}}, justice:{up:{fx:{reflect:.5}}}, hanged:{up:{fx:{still:5}}},
+};
+const isEx=id=>id.endsWith('*');
+const baseId=id=>id.replace('*','');
+const _ex={};
+function C(id){
+  const b=CARDS[baseId(id)];if(!isEx(id))return b;
+  if(_ex[id])return _ex[id];
+  const o=EXALT_OVERRIDE[baseId(id)]||{};
+  return _ex[id]={num:b.num,glyph:b.glyph,ex:true,name:'Exalted '+b.name.replace(/^The /,''),
+    up:o.up||{fx:scaleFx(b.up.fx,2)},rv:o.rv||{fx:scaleFx(b.rv.fx,2)}};
+}
+const START_DECKS={
+  blade:{name:'The Blade',blurb:'Strike first and hard. Built toward Sleight of Fate and Momentum.',cards:['fool','magician','wheel','strength','chariot','sun']},
+  vigil:{name:'The Vigil',blurb:'Endure and outlast. Built toward Long Patience, Healing Waters and Clear Skies.',cards:['hermit','hanged','star','temperance','sun','strength']},
+  verdict:{name:'The Verdict',blurb:'Fate and judgement. Built toward Final Verdict, Collapse and The Wheel Turns.',cards:['fool','wheel','justice','judgement','death','tower']},
+};
+const POS=[
+  {name:'What was',m:.5,note:'Half strength. Already written: time cannot unwrite it.'},
+  {name:'What is',m:1,note:'Full strength.'},
+  {name:'What will be',m:1.5,note:'Half again as strong. Arrives for fight 2, then echoes onward.'},
+];
+const OMENS=[
+  {ids:['sun','star'],name:'Clear Skies',fx:{regen:1,crit:.1}},
+  {ids:['tower','death'],name:'Collapse',fx:{atk:4,def:-1}},
+  {ids:['hermit','hanged'],name:'Long Patience',fx:{still:2}},
+  {ids:['magician','wheel'],name:'Sleight of Fate',fx:{atk:1,crit:.15}},
+  {ids:['justice','judgement'],name:'Final Verdict',fx:{reflect:.2,revive:.15}},
+  {ids:['strength','chariot'],name:'Momentum',fx:{spd:2,maxHp:6}},
+  {ids:['temperance','star'],name:'Healing Waters',fx:{regen:2}},
+  {ids:['fool','world'],name:'The Journey Complete',gold:10,txt:'+10 gold when you descend'},
+];
+/* Omens that care where a card sits (0 What was, 1 What is, 2 What will be) or which way up it is. */
+const at=(R,id,pos,rev)=>R.some((r,i)=>baseId(r.id)===id&&(pos==null||i===pos)&&(rev==null||r.rev===rev));
+const POS_OMENS=[
+  {name:'Long Shadow',when:'Death in What was',test:R=>at(R,'death',0),fx:{atk:3}},
+  {name:'Rising Sun',when:'The Sun upright in What will be',test:R=>at(R,'sun',2,false),fx:{atk:2,def:1}},
+  {name:'The Tower Fallen',when:'The Tower reversed in What was',test:R=>at(R,'tower',0,true),fx:{def:2,maxHp:10}},
+  {name:'Guiding Star',when:'The Star in What is',test:R=>at(R,'star',1),fx:{still:2}},
+  {name:'The Wheel Turns',when:'Wheel of Fortune in What will be',test:R=>at(R,'wheel',2),anchor:1},
+  {name:'Crossroads',when:'The Hermit in What was, The Chariot in What will be',test:R=>at(R,'hermit',0)&&at(R,'chariot',2),fx:{spd:3,def:2}},
+  {name:'The Witness',when:'Justice in What was, Judgement in What will be',test:R=>at(R,'justice',0)&&at(R,'judgement',2),fx:{reflect:.2,revive:.3}},
+  {name:'Veiled Path',when:'The High Priestess in What was, The Moon in What will be',test:R=>at(R,'priestess',0)&&at(R,'moon',2),fx:{crit:.2,still:2}},
+  {name:'Royal Court',when:'The Empress and The Emperor, one upright and one reversed',test:R=>{const a=R.find(r=>baseId(r.id)==='empress'),b=R.find(r=>baseId(r.id)==='emperor');return!!(a&&b&&a.rev!==b.rev)},fx:{atk:3,def:3}},
+  {name:'Temptation',when:'The Devil upright beside The Lovers',test:R=>{const d=R.findIndex(r=>baseId(r.id)==='devil'&&!r.rev),l=R.findIndex(r=>baseId(r.id)==='lovers');return d>=0&&l>=0&&Math.abs(d-l)===1},fx:{atk:5,def:-1}},
+  {name:'Dawn After the Storm',when:'The Tower in What was, The Star after it',test:R=>at(R,'tower',0)&&(at(R,'star',1)||at(R,'star',2)),fx:{regen:2,maxHp:8}},
+  {name:'Blessing',when:'The Hierophant upright in What is',test:R=>at(R,'hierophant',1,false),anchor:1},
+  {name:'Mirror Image',when:'Two copies of the same card',test:R=>new Set(R.map(r=>baseId(r.id))).size<R.length,anchor:1},
+];
+const ENEMY_ARCANA={magician:{atk:3},chariot:{spd:3},strength:{maxHp:12},hermit:{def:2},star:{regen:2},sun:{atk:2,def:1},
+  tower:{atk:5,def:-1},wheel:{crit:.2},justice:{reflect:.25},death:{atk:2,crit:.12},temperance:{regen:2,maxHp:6},judgement:{revive:.3},
+  empress:{regen:2,maxHp:8},emperor:{def:2,maxHp:6},devil:{atk:4},priestess:{crit:.15,def:1},moon:{crit:.15,spd:2}};
+const BOSS_POOL=['tower','sun','wheel','justice','star','strength','death','magician'];
+const FOES=[['Clockwork Rat',17,5,0,4],['Hourglass Wraith',20,5,1,7],['Rusted Sentinel',27,5,2,2],['Echo of Yesterday',19,6,0,5],['Pendulum Hound',21,6,1,6]];
+const BOSS={name:'The Chronarch',maxHp:130,atk:12,def:3,spd:7};
+const BOSS_CARD_MULT=1.3;           // his two cards apply at this strength
+const FLOORS=5, FIGHTS=2, TURN_COST=6;
+const FLOOR_NAMES=['The Cathedral Below','The Ossuary of the Unwound','The Old City','The Escapement','The Stilled Hour'];
+const floorName=f=>FLOOR_NAMES[f-1];
+const FOE_SCALE=.35;                // foe HP/ATK/DEF per floor
+const FLOOR_BOOST={3:1.15,4:1.25};  // extra foe HP/ATK on floors III and IV
+const arcanaMult=f=>.6+.25*(f-1);   // enemy cards: 0.6× on floor I up to 1.35× on IV
+const BREATH=.15;                   // HP recovered after each won fight
+const ECHO_MULT=.5;                 // last floor's future returns as an echo at this strength
+const AFFINITY_MULT=1.5;            // attuned gear: matching card's buff ×1.5 while active
+const AFFINITY_FROM_DECK=.7;        // chance attuned gear names a card already in your deck
+const AFF_POOL=['magician','priestess','empress','emperor','hierophant','lovers','chariot','strength','hermit','wheel','justice','hanged','death','devil','tower','star','moon','sun','judgement'];
+
+const TIERS=[{name:'Tarnished',r:'I'},{name:'Tempered',r:'II'},{name:'Gilded',r:'III'},{name:'Chronoforged',r:'IV'}];
+const MAXT=TIERS.length-1;
+const BASES={weapon:['Minute-Hand Spear','Gearcut Dagger','Pendulum Blade','Sundial Axe'],armor:['Brass Cuirass','Sandwoven Cloak','Escapement Mail'],trinket:['Cracked Monocle','Mainspring Charm','Moth-Wing Locket']};
+const TWISTS={
+  'Minute-Hand Spear':{fx:{spd:1},txt:'Light and quick in the hand.'},
+  'Gearcut Dagger':{fx:{crit:.08},txt:'Finds the gaps between the teeth.'},
+  'Pendulum Blade':{fx:{echo:3},txt:'Swings back on every third round.'},
+  'Sundial Axe':{fx:{atk:2,spd:-1},txt:'Heavy, slow, and brutal.'},
+  'Brass Cuirass':{fx:{def:1},txt:'Thick plate, nothing clever.'},
+  'Sandwoven Cloak':{fx:{spd:1},txt:'Weighs no more than an hour.'},
+  'Escapement Mail':{fx:{reflect:.1},txt:'Its links snap back at attackers.'},
+  'Cracked Monocle':{fx:{crit:.05},txt:'Shows where things will break.'},
+  'Mainspring Charm':{fx:{regen:1},txt:'Winds you back up between blows.'},
+  'Moth-Wing Locket':{fx:{still:1},txt:'Time hesitates near it.'},
+};
+const CURSES=[
+  {name:'Leaking Hour',txt:'Lose 1 HP at the end of each round',fx:{bleed:1}},
+  {name:'Leaden Step',txt:'−2 SPD',fx:{spd:-2}},
+  {name:'Brittle Bone',txt:'−1 DEF',fx:{def:-1}},
+  {name:'Spent Coin',txt:'Lose 4 gold after every fight',fx:{tax:4}},
+  {name:'Loose Threads',txt:'Time ripples 10% more often outside the boss fight',fx:{drift:.1}},
+];
+
+/* ================= helpers ================= */
+const rnd=(a,b)=>a+Math.floor(Math.random()*(b-a+1));
+const pick=a=>a[Math.floor(Math.random()*a.length)];
+const shuffle=a=>{a=[...a];for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]]}return a};
+const $=s=>document.querySelector(s);
+const pct=x=>Math.round(x*100)+'%';
+const roman=f=>['I','II','III','IV','V'][f-1];
+const sg=v=>v>0?'+':'−';
+const FXF={atk:v=>`${sg(v)}${Math.abs(v)} ATK`,def:v=>`${sg(v)}${Math.abs(v)} DEF`,spd:v=>`${sg(v)}${Math.abs(v)} SPD`,maxHp:v=>`${sg(v)}${Math.abs(v)} max HP`,
+  crit:v=>`${sg(v)}${pct(Math.abs(v))} crit`,regen:v=>`+${v} HP each round`,reflect:v=>`reflect ${pct(v)} of damage`,
+  still:v=>`time held off ${v} round${v>1?'s':''}`,echo:v=>`double strike every ${v}rd round`,
+  exec:v=>`execute foes below ${pct(v)} HP`,revive:v=>`once per floor, rise at ${pct(v)} HP`,bleed:v=>`lose ${v} HP each round`};
+const fxText=fx=>Object.entries(fx).filter(([k,v])=>v&&FXF[k]).map(([k,v])=>FXF[k](v)).join(', ');
+const INTK=['atk','def','spd','maxHp','regen','still','echo'];
+function scaleFx(fx,m){const o={};for(const k in fx){const v=fx[k];
+  if(INTK.includes(k))o[k]=Math.sign(v)*Math.max(1,Math.round(Math.abs(v)*m));else o[k]=+(v*m).toFixed(2)}return o}
+const cardFace=r=>r.rev?C(r.id).rv:C(r.id).up;
+const faceText=f=>f.fx?fxText(f.fx):f.txt;
+
+let S;
+
+/* ================= core state ================= */
+function newRun(){
+  S={floor:1,fight:0,gold:8,kills:0,
+     hero:{maxHp:40,hp:40,atk:6,def:1,spd:5,crit:.05},
+     gear:{weapon:null,armor:null,trinket:null},spells:[],
+     deck:[],buffs:[],reading:[],pile:[],revealed:false,recastUsed:false,recasts:1,revived:false,bossCards:[],echo:null,carry:null,
+     screen:'deck',startedAt:Date.now(),readLog:[],logged:false,runId:null,interest:null,fbSent:false};
+  render();
+}
+function chooseDeck(k){S.deck=[...START_DECKS[k].cards];S.deckName=k;
+  const pool=Object.keys(CARDS),opts=[];while(opts.length<3){const c=pick(pool);if(!opts.includes(c))opts.push(c)}
+  S.draft=opts;S.screen='draft';render()}
+function draftPick(id){if(id)S.deck.push(id);S.draftPick=id||'none';S.draft=null;startReading()}
+const dormant=b=>b.future&&S.fight===0&&S.floor<FLOORS;
+function stats(act){
+  const h=S.hero,s={maxHp:h.maxHp,atk:h.atk,def:h.def,spd:h.spd,crit:h.crit,regen:0,reflect:0,exec:0,still:0,revive:0,echo:0,bleed:0,drift:0,tax:0};
+  for(const g of Object.values(S.gear))if(g){for(const k in g.fx)s[k]+=g.fx[k];if(g.cursed)for(const k in g.cursed.fx)s[k]+=g.cursed.fx[k]}
+  const live={};
+  S.buffs.forEach((b,i)=>{const on=act?act[i]:b.active;if(on&&!dormant(b)){for(const k in b.fx)s[k]+=b.fx[k];if(!b.omen&&!live[baseId(b.id)])live[baseId(b.id)]=b}});
+  for(const g of Object.values(S.gear))if(g&&g.aff&&live[g.aff]){const bonus=scaleFx(live[g.aff].fx,AFFINITY_MULT-1);for(const k in bonus)s[k]+=bonus[k]}
+  s.def=Math.max(0,s.def);s.spd=Math.max(1,s.spd);return s;
+}
+function healTo(n){S.hero.hp=Math.max(1,Math.min(stats().maxHp,n))}
+
+/* ================= gear & spells ================= */
+function gearFx(slot,t,base){
+  const f=slot==='weapon'?{atk:1+2*t}:slot==='armor'?{def:[1,1,2,3][t],maxHp:3+3*t}:{spd:[1,1,2,2][t],crit:+(.04+.03*t).toFixed(2)};
+  const tw=base&&TWISTS[base];if(tw)for(const k in tw.fx)f[k]=+((f[k]||0)+tw.fx[k]).toFixed(2);
+  return f;
+}
+function pickAff(){const own=[...new Set(S.deck.map(baseId))].filter(x=>AFF_POOL.includes(x));
+  return own.length&&Math.random()<AFFINITY_FROM_DECK?pick(own):pick(AFF_POOL)}
+function mkGear(slot,t,base,aff){base=base||pick(BASES[slot]);return{kind:'gear',slot,tier:t,base,fx:gearFx(slot,t,base),aff:aff||pickAff()}}
+function dropTier(){return Math.min(MAXT,Math.max(0,S.floor-1-(Math.random()<.35?1:0)+(Math.random()<.12?1:0)))}
+function mkCursed(){const slot=pick(['weapon','armor','trinket']),t=Math.min(MAXT-1,dropTier()),base=pick(BASES[slot]);
+  return{kind:'gear',slot,tier:t,base,fx:gearFx(slot,t+1,base),cursed:pick(CURSES),aff:pickAff()}}
+function makeGear(){return Math.random()<.22?mkCursed():mkGear(pick(['weapon','armor','trinket']),dropTier())}
+const gearName=g=>`${g.cursed?'Cursed':TIERS[g.tier].name} ${g.base}`;
+const affText=g=>g&&g.aff?`Attuned to ${C(g.aff).name}: while that card is active, its effect is ×${AFFINITY_MULT}.`:'';
+const tierTag=t=>`<span class="tier t${t}">TIER ${TIERS[t].r}</span>`;
+const curseTag=g=>g&&g.cursed?' <span class="curse">CURSED</span>':'';
+const forgeCost=t=>[20,32,46][t];
+const gearPrice=t=>18+12*t;
+function setGear(it){const before=stats().maxHp;S.gear[it.slot]=it;const g=stats().maxHp-before;if(g>0)S.hero.hp+=g;healTo(S.hero.hp)}
+function makeSpell(){
+  const f=S.floor,k=pick(['ember','mend','still']);
+  if(k==='ember')return{kind:'spell',id:k,name:'Ace of Wands',cd:3,pow:5+3*f,txt:`Every 3 rounds, deal ${5+3*f} damage`};
+  if(k==='mend')return{kind:'spell',id:k,name:'Six of Cups',cd:4,pow:5+2*f,txt:`Every 4 rounds, heal ${5+2*f} HP`};
+  return{kind:'spell',id:k,name:'Four of Pentacles',cd:4,pow:0,txt:'Every 4 rounds, ward off the next time ripple'};
+}
+const itemValue=it=>it.kind==='spell'?5+2*S.floor:4+5*it.tier;
+
+/* ================= the reading ================= */
+function startReading(){
+  Object.assign(S,{screen:'reading',revealed:false,recastUsed:false,recasts:1,buffs:[],revived:false,flip:-1,echo:S.carry||null,carry:null});
+  const order=shuffle(S.deck);
+  S.reading=order.slice(0,3).map(id=>({id,rev:Math.random()<.3,anchored:false}));
+  S.pile=order.slice(3);
+  if(S.floor===FLOORS)S.bossCards=shuffle(BOSS_POOL).slice(0,2);
+  render();
+}
+function omens(){
+  const R=S.reading;if(!S.revealed)return[];
+  const ids=new Set(R.map(r=>baseId(r.id)));
+  const out=OMENS.filter(o=>o.ids.every(i=>ids.has(i)));
+  if(R.length===3&&R.every(r=>!r.rev))out.push({name:'A Clear Reading',anchor:1,txt:'All upright: +1 anchor'});
+  if(R.length===3&&R.every(r=>r.rev))out.push({name:'Inverted Sky',fx:{atk:3,def:2},txt:'All reversed, and fate takes pity'});
+  for(const o of POS_OMENS)if(o.test(R))out.push({...o,txt:o.anchor?`${o.when}: +${o.anchor} anchor`:o.when});
+  return out;
+}
+const omenText=o=>o.fx?(o.txt?o.txt+': ':'')+fxText(o.fx):o.txt;
+function anchorsMax(){return 1+S.reading.reduce((a,r)=>a+((cardFace(r).inst||{}).anchor||0),0)+omens().reduce((a,o)=>a+(o.anchor||0),0)}
+function trimAnchors(){const mx=anchorsMax();let used=S.reading.filter(r=>r.anchored);while(used.length>mx){used.pop().anchored=false;used=S.reading.filter(r=>r.anchored)}}
+function applyInst(r){const f=cardFace(r).inst;if(!f)return;const mx=stats().maxHp;
+  if(f.recast){S.recasts+=f.recast;S.recastUsed=S.recasts<=0}
+  if(f.gold)S.gold+=f.gold;if(f.heal)healTo(S.hero.hp+Math.round(mx*f.heal));if(f.dmg)healTo(S.hero.hp-f.dmg)}
+function reveal(){
+  const els=[...document.querySelectorAll('.spread.player .tarot')];
+  els.forEach((el,i)=>setTimeout(()=>el.classList.remove('down'),i*380));
+  setTimeout(()=>{S.revealed=true;S.reading.forEach(applyInst);render()},els.length*380+500);
+}
+function toggleAnchor(i){const r=S.reading[i],used=S.reading.filter(x=>x.anchored).length;
+  if(r.anchored)r.anchored=false;else if(used<anchorsMax())r.anchored=true;render()}
+function recast(i){
+  if(S.recasts<=0||!S.pile.length)return;
+  const id=S.pile.shift();S.reading[i]={id,rev:Math.random()<.3,anchored:false};S.recasts--;S.recastUsed=S.recasts<=0;
+  applyInst(S.reading[i]);trimAnchors();S.flip=i;render();
+}
+const canTurn=r=>!!(C(r.id).up.fx&&C(r.id).rv.fx);
+function turnCard(i){const r=S.reading[i];if(!canTurn(r)||S.hero.hp<=TURN_COST)return;r.rev=!r.rev;healTo(S.hero.hp-TURN_COST);trimAnchors();render()}
+/* Arrange the spread: swap a card with its neighbour. A card moved into What was is already written, so it releases its anchor. */
+function moveCard(i,d){const j=i+d;if(j<0||j>2)return;const R=S.reading;[R[i],R[j]]=[R[j],R[i]];if(R[0].anchored)R[0].anchored=false;trimAnchors();render()}
+/* A spare anchor (one left unused) writes the past firmer: What was counts at full strength. */
+const spareAnchors=()=>Math.max(0,anchorsMax()-S.reading.filter(r=>r.anchored).length);
+const posMult=i=>i===0&&spareAnchors()>0?1:POS[i].m;
+function descend(){
+  const before=stats().maxHp;
+  for(const o of omens())if(o.gold)S.gold+=o.gold;
+  S.readLog.push({floor:S.floor,spread:S.reading.map(r=>({card:r.id,rev:r.rev,fixed:!!r.anchored})),echo:S.echo?S.echo.id:null,omens:omens().map(o=>o.name)});
+  S.buffs=[];
+  S.reading.forEach((r,i)=>{const f=cardFace(r);if(!f.fx)return;
+    S.buffs.push({id:r.id,name:C(r.id).name,rev:r.rev,pos:i,fx:scaleFx(f.fx,posMult(i)),anchored:i===0||r.anchored,past:i===0,future:i===2,active:true})});
+  if(S.echo){const f=cardFace(S.echo);if(f.fx)S.buffs.push({id:S.echo.id,name:C(S.echo.id).name,rev:S.echo.rev,fx:scaleFx(f.fx,ECHO_MULT),anchored:true,echo:true,active:true})}
+  for(const o of omens())if(o.fx)S.buffs.push({id:'omen',name:o.name,fx:o.fx,anchored:true,omen:true,active:true});
+  const gain=stats().maxHp-before;if(gain>0)S.hero.hp+=gain;healTo(S.hero.hp);
+  S.fight=0;startFight();
+}
+
+/* ================= combat ================= */
+function makeFoe(elite){
+  const [name,hp,atk,def,spd]=pick(FOES),m=(1+FOE_SCALE*(S.floor-1))*(FLOOR_BOOST[S.floor]||1),mh=Math.round(hp*m*(elite?1+.1*S.floor:1));
+  const e={name,maxHp:mh,hp:mh,atk:Math.round(atk*m),def:Math.round(def*(1+FOE_SCALE*(S.floor-1))),spd:spd+S.floor-1,crit:0,regen:0,reflect:0,revive:0,arcana:[],void:[]};
+  if(elite){const id=pick(Object.keys(ENEMY_ARCANA));e.arcana.push(id);applyArcana(e,id,arcanaMult(S.floor))}
+  return e;
+}
+function applyArcana(e,id,m){const fx=scaleFx(ENEMY_ARCANA[id],m);for(const k in fx){if(k==='maxHp'){e.maxHp+=fx[k];e.hp+=fx[k]}else e[k]+=fx[k]}}
+function simulate(e,boss,intro){
+  const ev=[],sp=S.spells.map(s=>({s,c:s.cd}));
+  let st=stats(),hp=Math.min(S.hero.hp,st.maxHp),ehp=e.hp,ward=false,round=0,eRevived=false;
+  const emax=e.maxHp;
+  const snap=(t,cls)=>ev.push({t,cls,hp:Math.max(0,hp),maxHp:st.maxHp,ehp:Math.max(0,ehp),act:S.buffs.map(b=>b.active)});
+  const roll=x=>Math.round(x*(0.85+Math.random()*0.3));
+  intro.forEach(([t,c])=>snap(t,c));
+  const heroDown=()=>{if(hp<=0&&st.revive&&!S.revived){S.revived=true;hp=Math.max(1,Math.round(st.maxHp*st.revive));snap(`Judgement calls you back at ${hp} HP.`,'card')}};
+  const foeDown=()=>{if(ehp<=0&&e.revive&&!eRevived){eRevived=true;ehp=Math.round(emax*e.revive);snap(`${e.name} is called back by Judgement (${ehp} HP).`,'foe')}};
+  const heroHit=()=>{
+    let d=Math.max(1,roll(st.atk)-e.def);const crit=Math.random()<st.crit;if(crit)d=Math.round(d*1.75);
+    ehp-=d;snap(`You strike for ${d}${crit?' (critical)':''}.`,'you');
+    if(ehp>0&&e.reflect){const r=Math.max(1,Math.round(d*e.reflect));hp-=r;snap(`${e.name}'s Justice returns ${r}.`,'foe');heroDown()}
+    if(ehp>0&&st.exec&&ehp<=emax*st.exec){ehp=0;snap(`Death takes ${e.name} before its time.`,'card')}
+    foeDown();
+  };
+  const foeHit=()=>{
+    let d=Math.max(1,roll(e.atk)-st.def);const crit=Math.random()<e.crit;if(crit)d=Math.round(d*1.6);
+    hp-=d;snap(`${e.name} hits you for ${d}${crit?' (critical)':''}.`,'foe');
+    if(st.reflect&&ehp>0){const r=Math.max(1,Math.round(d*st.reflect));ehp-=r;snap(`Justice returns ${r}.`,'card');foeDown()}
+    heroDown();
+  };
+  while(hp>0&&ehp>0&&round<40){
+    round++;snap(`Round ${round}`,'round');
+    if(round<=st.still){if(round===1)snap('Time is held off. Nothing can be unwritten yet.','card')}
+    else{
+      const ripple=boss?round%2===0:Math.random()<0.08*S.floor+st.drift;
+      if(ripple&&S.buffs.some(b=>b.active)){
+        if(ward){ward=false;snap('The Four of Pentacles holds. The ripple passes over you.','spell')}
+        else{const loose=S.buffs.filter(b=>b.active&&!b.anchored);
+          if(loose.length){const b=pick(loose);b.active=false;st=stats();hp=Math.min(hp,st.maxHp);
+            snap(dormant(b)?`Time ripples. ${b.name} is unwritten before it can arrive.`:`Time ripples. ${b.name} is unwritten.`,'time')}
+          else snap('Time ripples, but every card is fixed in place.','time')}
+      }
+      if(boss&&round%4===0){
+        const anch=S.buffs.filter(b=>b.active&&b.anchored&&!b.omen).length,h=Math.round(emax*Math.max(0,.2-.06*anch));
+        if(h>0){ehp=Math.min(emax,ehp+h);snap(`The Chronarch rewinds his wounds (+${h} HP).`,'time')}
+        else snap('The Chronarch reaches for the past, but your fixed cards hold it shut.','card');
+      }
+    }
+    for(const x of sp){if(--x.c>0)continue;x.c=x.s.cd;
+      if(x.s.id==='ember'){ehp-=x.s.pow;snap(`The Ace of Wands sears for ${x.s.pow}.`,'spell');foeDown()}
+      else if(x.s.id==='mend'){const h=Math.min(x.s.pow,st.maxHp-hp);if(h>0){hp+=h;snap(`The Six of Cups restores ${h} HP.`,'spell')}}
+      else{ward=true;snap('The Four of Pentacles gathers stillness around you.','spell')}}
+    if(ehp<=0)break;
+    const echo=st.echo&&round%st.echo===0;
+    const strike=()=>{heroHit();if(echo&&ehp>0&&hp>0){snap('The Pendulum Blade swings back.','you');heroHit()}};
+    if(st.spd>=e.spd){strike();if(ehp>0&&hp>0)foeHit()}else{foeHit();if(hp>0)strike()}
+    if(hp>0&&ehp>0&&st.bleed){hp=Math.max(1,hp-st.bleed);snap(`The Leaking Hour drains ${st.bleed} HP.`,'curse')}
+    if(hp>0&&ehp>0&&st.regen){const h=Math.min(st.regen,st.maxHp-hp);if(h>0){hp+=h;snap(`Your cards mend ${h} HP.`,'card')}}
+    if(hp>0&&ehp>0&&e.regen){const h=Math.min(e.regen,emax-ehp);if(h>0){ehp+=h;snap(`${e.name} mends ${h} HP.`,'foe')}}
+  }
+  const win=ehp<=0&&hp>0;
+  snap(win?`${e.name} falls.`:(hp>0?'The hour runs out. Time closes over you.':'You fall. Time closes over you.'),win?'win':'lose');
+  S.hero.hp=win?hp:0;
+  return{ev,win};
+}
+let timer=null;
+function startFight(){
+  const boss=S.floor===FLOORS,intro=[];
+  let e;
+  if(boss){
+    e={...BOSS,hp:BOSS.maxHp,crit:0,regen:0,reflect:0,revive:0,arcana:[],void:[]};
+    intro.push(['The Chronarch turns his own cards.','sys']);
+    for(const id of S.bossCards){
+      const mirror=S.buffs.find(b=>baseId(b.id)===id&&b.active&&b.anchored);
+      if(mirror){e.void.push(id);intro.push([`Your fixed ${C(id).name} mirrors his. Reality cannot hold both, and his copy shatters.`,'card'])}
+      else{e.arcana.push(id);applyArcana(e,id,BOSS_CARD_MULT);intro.push([`His ${C(id).name} takes hold: ${fxText(scaleFx(ENEMY_ARCANA[id],BOSS_CARD_MULT))}.`,'foe'])}
+    }
+  }else{
+    e=makeFoe(S.fight===1);
+    intro.push([`${e.name} bars the way.`,'sys']);
+    if(e.arcana.length)intro.push([`It bears ${C(e.arcana[0]).name}: ${fxText(scaleFx(ENEMY_ARCANA[e.arcana[0]],arcanaMult(S.floor)))}.`,'foe']);
+    if(S.fight===1&&S.buffs.some(b=>b.future&&b.active))intro.push(['What will be has arrived.','card']);
+  }
+  const r=simulate(e,boss,intro);
+  S.screen='battle';S.foe=e;S.play={ev:r.ev,i:0,win:r.win,boss,speed:1,done:false};
+  render();schedule();
+}
+function schedule(){clearTimeout(timer);if(!S.play.done)timer=setTimeout(step,560/S.play.speed)}
+function logLine(e){const d=document.createElement('div');d.className=e.cls;d.textContent=e.t;$('#log').appendChild(d)}
+function step(){
+  const p=S.play,e=p.ev[p.i];if(!e)return finishPlayback();
+  logLine(e);const log=$('#log');log.scrollTop=log.scrollHeight;
+  $('#hpH').style.width=pct(e.hp/e.maxHp);$('#hpHt').textContent=`${e.hp} / ${e.maxHp}`;
+  $('#hpE').style.width=pct(Math.min(1,e.ehp/S.foe.maxHp));$('#hpEt').textContent=`${e.ehp} / ${S.foe.maxHp}`;
+  renderHud(e);p.i++;
+  if(p.i>=p.ev.length)finishPlayback();else schedule();
+}
+function skip(){const p=S.play;clearTimeout(timer);while(p.i<p.ev.length-1){logLine(p.ev[p.i]);p.i++}step()}
+function setSpeed(s){S.play.speed=s;document.querySelectorAll('[data-speed]').forEach(b=>b.classList.toggle('on',+b.dataset.speed===s));schedule()}
+function finishPlayback(){
+  S.play.done=true;clearTimeout(timer);renderHud();
+  const a=$('#battleActions'),p=S.play;
+  a.innerHTML=`<button class="btn" id="go">${!p.win?'See how it ended':p.boss?'Step out of the stilled hour':'Collect the spoils'}</button>`;
+  $('#go').onclick=()=>{if(!p.win){logRun(false);S.screen='lose';render()}else if(p.boss){logRun(true);S.screen='win';render()}else{S.kills++;makeLoot()}};
+  $('#go').focus();
+}
+
+/* ================= loot & shop ================= */
+function makeLoot(){
+  const elite=S.fight===1,gold=rnd(4,7)+2*S.floor+(elite?4:0),tax=Math.min(S.gold+gold,stats().tax);
+  S.gold+=gold-tax;
+  const mx=stats().maxHp,breath=Math.min(mx-S.hero.hp,Math.round(mx*BREATH));S.hero.hp+=breath;
+  S.loot={gold,tax,breath,claim:elite?S.foe.arcana[0]:null,item:null};
+  if(!elite){const r=Math.random();if(r<.55)S.loot.item=r<.15?makeSpell():makeGear()}
+  S.screen='loot';render();
+}
+function afterLoot(){
+  if(S.fight+1<FIGHTS){const b=stats().maxHp;S.fight++;const g=stats().maxHp-b;if(g>0)S.hero.hp+=g;startFight()}
+  else enterShop();
+}
+function equip(slotIdx){
+  const it=S.loot.item;
+  if(it.kind==='gear'){const old=S.gear[it.slot];if(old&&!old.cursed)S.gold+=itemValue(old);setGear(it)}
+  else if(slotIdx==null)S.spells.push(it);else S.spells[slotIdx]=it;
+  afterLoot();
+}
+function sellLoot(){S.gold+=itemValue(S.loot.item);afterLoot()}
+function enterShop(){
+  S.fight=FIGHTS;
+  const mx=stats().maxHp,h=Math.min(mx-S.hero.hp,Math.round(mx*.2));S.hero.hp+=h;
+  S.shop={rested:h,offers:[0,1,2,3].map(cardOffer),potions:2,gear:gearOffers(),cardRerolled:false,gearRerolls:0};
+  S.screen='shop';render();
+}
+/* Shop stock. Cards: four offers, rerollable once per visit. Gear: two offers in different slots,
+   rerollable as often as you can pay; each reroll costs half again as much as the last (6, 9, 14, 21 …), reset each visit. */
+const CARD_REROLL_COST=6, GEAR_REROLL_BASE=6;
+const gearRerollCost=()=>Math.round(GEAR_REROLL_BASE*1.5**S.shop.gearRerolls);
+function cardOffer(){return{id:pick(Object.keys(CARDS)),price:rnd(9,15),sold:false}}
+function gearOffer(slot){const t=Math.min(MAXT,S.floor-1+(Math.random()<.3?1:0));return{item:mkGear(slot,t),price:gearPrice(t),sold:false}}
+function gearOffers(){const slots=shuffle(['weapon','armor','trinket']).slice(0,2);return slots.map(gearOffer)}
+function rerollCards(){const sh=S.shop;if(sh.cardRerolled||S.gold<CARD_REROLL_COST)return;
+  S.gold-=CARD_REROLL_COST;sh.cardRerolled=true;sh.offers=sh.offers.map(o=>o.sold?o:cardOffer());render()}
+function rerollGear(){const sh=S.shop,c=gearRerollCost();if(S.gold<c||sh.gear.every(o=>o.sold))return;
+  S.gold-=c;sh.gearRerolls++;const fresh=gearOffers();sh.gear=sh.gear.map((o,i)=>o.sold?o:fresh[i]);render()}
+function buyCard(i){const o=S.shop.offers[i];if(o.sold||S.gold<o.price)return;S.gold-=o.price;o.sold=true;S.deck.push(o.id);render()}
+function buyGear(i){const o=S.shop.gear[i];if(o.sold||S.gold<o.price)return;S.gold-=o.price;o.sold=true;const old=S.gear[o.item.slot];if(old&&!old.cursed)S.gold+=itemValue(old);setGear(o.item);render()}
+function forge(slot){const g=S.gear[slot];if(!g||g.tier>=MAXT||S.gold<forgeCost(g.tier))return;S.gold-=forgeCost(g.tier);setGear(mkGear(slot,g.tier+1,g.base,g.aff));render()}
+function buyPotion(){if(S.gold<10||!S.shop.potions)return;S.gold-=10;S.shop.potions--;healTo(S.hero.hp+12);render()}
+function fuse(id){let n=0;S.deck=S.deck.filter(x=>{if(x===id&&n<3){n++;return false}return true});if(n<3)return;S.deck.push(id+'*');render()}
+function burn(i){if(S.gold<5||S.deck.length<=3)return;S.gold-=5;S.deck.splice(i,1);render()}
+function carryFromFloor(){
+  /* The future becomes the past: if this floor's What will be card wasn't unwritten by time, it echoes into the next floor. */
+  const r=S.reading[2];if(!r)return null;const f=cardFace(r);if(!f.fx)return null;
+  const b=S.buffs.find(b=>b.future);if(!b||!b.active)return null;return{id:r.id,rev:r.rev};
+}
+function nextFloor(){S.carry=carryFromFloor();S.floor++;S.buffs=[];S.fight=0;if(S.floor===FLOORS)S.hero.hp=stats().maxHp;startReading()}
+
+/* ================= rendering ================= */
+function cardHTML(r,o={}){
+  const c=C(r.id);
+  return `<div class="tarot ${c.ex?'ex':''} ${o.down?'down':''} ${r.rev?'rev':''} ${o.foe?'foecard':''}"><div class="inner"><div class="face back"></div><div class="face front"><div class="art"><span class="num">${c.num}${c.ex?' ✦':''}</span><span class="glyph" aria-hidden="true">${c.glyph}</span><span class="nm">${c.name}</span></div></div></div></div>`;
+}
+function renderTrack(){
+  if(!S||S.screen==='title'){$('#track').innerHTML='';return}
+  let h='';for(let f=1;f<=FLOORS;f++){
+    const cls=S.screen==='win'||f<S.floor?'done':f===S.floor&&S.screen!=='lose'?'now':'';
+    h+=`<span class="${cls}" title="${floorName(f)}">${f===FLOORS?'Chronarch':roman(f)}</span>`}
+  $('#track').innerHTML=h;
+}
+function buffPill(b,on){
+  if(!on)return'<span class="pill gone">Unwritten</span>';
+  if(b.omen)return'<span class="pill omen">Omen</span>';
+  if(b.echo)return'<span class="pill written">Echo</span>';
+  if(b.past)return'<span class="pill written">Written</span>';
+  if(dormant(b))return`<span class="pill dormant">${b.anchored?'Fixed · ':''}Arrives fight 2</span>`;
+  return b.anchored?'<span class="pill fixed">Fixed</span>':'<span class="pill loose">Loose</span>';
+}
+function renderHud(snap){
+  if(!S||S.screen==='title'){$('#hud').hidden=true;return}
+  $('#hud').hidden=false;
+  const st=stats(snap&&snap.act),hp=snap?snap.hp:S.hero.hp,mx=snap?snap.maxHp:st.maxHp;
+  const buffs=S.buffs.length?S.buffs.map((b,i)=>{const on=snap?snap.act[i]:b.active;
+      return `<div class="li ${on?'':'off'}"><span>${b.name}${b.rev?' <small>(rev.)</small>':''}${b.echo?' <small>(½)</small>':''}</span>${buffPill(b,on)}</div>`}).join('')
+    :`<div class="empty">${S.screen==='reading'?'Awaiting the reading.':'No cards in play.'}</div>`;
+  const gear=['weapon','armor','trinket'].map(k=>{const g=S.gear[k];return `<div class="li"><span>${g?gearName(g)+' '+tierTag(g.tier)+curseTag(g):'<span class="empty">No '+k+'</span>'}</span><span class="fx">${g?fxText(g.fx)+(g.cursed?`<br><span class="ctxt">${g.cursed.txt}</span>`:'')+(g.aff?`<br><span class="aff">Attuned: ${C(g.aff).name}${S.buffs.some(b=>b.active&&!b.omen&&!dormant(b)&&baseId(b.id)===g.aff)?' · active':''}</span>`:''):''}</span></div>`}).join('');
+  const spells=S.spells.length?S.spells.map(s=>`<div class="li"><span>${s.name}</span><span class="fx">${s.txt.replace('Every ','every ')}</span></div>`).join(''):'<div class="empty">None yet. Spells drop from foes.</div>';
+  $('#hud').innerHTML=`
+    <div><div class="lbl">The Wanderer</div>
+      <div class="hp-row"><span>HP</span><span>${hp} / ${mx}</span></div>
+      <div class="bar"><i style="width:${pct(hp/mx)}"></i></div>
+      <div class="stats"><div class="stat"><b>${st.atk}</b><small>ATK</small></div><div class="stat"><b>${st.def}</b><small>DEF</small></div>
+        <div class="stat"><b>${st.spd}</b><small>SPD</small></div><div class="stat"><b>${pct(st.crit)}</b><small>CRIT</small></div></div></div>
+    <div class="li"><span class="lbl" style="margin:0">Gold</span><span class="gold">${S.gold}</span></div>
+    <div><div class="lbl">This floor's reading</div><div class="list">${buffs}</div></div>
+    <div><div class="lbl">Deck · ${S.deck.length} cards</div><div class="cmp">${S.deck.map(id=>C(id).name).join(', ')}</div></div>
+    <div><div class="lbl">Gear</div><div class="list">${gear}</div></div>
+    <div><div class="lbl">Spells</div><div class="list">${spells}</div></div>`;
+}
+function render(){
+  clearTimeout(timer);renderTrack();renderHud();
+  const st=$('#stage'),s=S?S.screen:'title';
+  if(s==='title'){
+    st.innerHTML=`<h2>The Chronarch has stopped the clock</h2>
+      <p>Ispyria is the last city left. Beneath it, through the Cathedral Below, the Ossuary of the Unwound, the Old City and the Escapement, time has pooled and gone still. The Chronarch waits at the bottom, in the Stilled Hour, unwriting anyone who comes near. Your only defense is your teacher's deck: what the cards fix in place, he cannot take back.</p>
+      <dl class="how">
+        <div><dt>Your deck</dt><dd>Choose one of three starting decks, then draft one extra card. All 22 Major Arcana are in the game.</dd></div>
+        <div><dt>The spread</dt><dd>Each floor opens with three cards, and you arrange them. <i>What was</i> is half strength but already written, so time can't touch it. <i>What is</i> is full strength. <i>What will be</i> is half again as strong but only arrives for the second fight.</dd></div>
+        <div><dt>Fix</dt><dd>You have one anchor. Fix a card and time can't unwrite it. Loose cards may vanish whenever time ripples mid-fight. Leave an anchor unused and it writes the past firmer: <i>What was</i> counts at full strength.</dd></div>
+        <div><dt>Shape fate</dt><dd>Once per reading you may recast a card, drawing a new one in its place. Reversed cards aren't weaker, just different: pay ${TURN_COST} HP to turn a card either way.</dd></div>
+        <div><dt>Omens</dt><dd>Some pairs of cards form an omen. Others care where a card sits or which way up it is: Death in <i>What was</i>, The Sun upright in <i>What will be</i>, and more. Three upright cards grant an extra anchor.</dd></div>
+        <div><dt>Echoes</dt><dd>If your <i>What will be</i> card survives the floor without being unwritten, it echoes into the next floor as a fourth, fixed card at half strength.</dd></div>
+        <div><dt>Attuned gear</dt><dd>Every piece of gear is attuned to an arcanum. While that card is active, its effect is ×${AFFINITY_MULT}.</dd></div>
+        <div><dt>Fusion</dt><dd>Three copies of one card can be fused at the Waystation into an Exalted card, doubling both faces.</dd></div>
+        <div><dt>Arcana</dt><dd>The second foe on each floor carries a card of its own. Defeat it and you may claim that card for your deck.</dd></div>
+        <div><dt>The Chronarch</dt><dd>He draws his own two cards, shown before your last reading. Fix the same card he holds (an echo counts) and his copy shatters. He also unwrites a loose card every other round and rewinds his wounds every fourth.</dd></div>
+      </dl>
+      <div class="actions"><button class="btn" id="b">Begin the descent</button></div>
+      ${T.on?'<p class="privacy">Playtest build: anonymous run stats (floor reached, cards, win or loss) are recorded to help balance the game. No names or personal details.</p>':''}`;
+    $('#b').onclick=newRun;return;
+  }
+  if(s==='deck'){
+    st.innerHTML=`<h2>Choose your deck</h2>
+      <p class="lead">Six cards to start. You'll draft one more, then claim and buy the rest on the way down.</p>
+      <div class="decks">${Object.entries(START_DECKS).map(([k,d])=>`<div class="deckc"><h3>${d.name}</h3><p class="cmp">${d.blurb}</p>
+        <div class="row mini">${d.cards.map(id=>cardHTML({id})).join('')}</div>
+        <button class="btn" data-deck="${k}">Take ${d.name}</button></div>`).join('')}</div>`;
+    st.querySelectorAll('[data-deck]').forEach(b=>b.onclick=()=>chooseDeck(b.dataset.deck));return;
+  }
+  if(s==='draft'){
+    st.innerHTML=`<h2>Draft one card</h2>
+      <p class="lead">Add one of these to ${START_DECKS[S.deckName].name}. A second copy of a card starts you toward a fusion.</p>
+      <div class="wares">${S.draft.map(id=>{const c=C(id);return `<div class="ware">${cardHTML({id})}
+        <div class="meaning">${faceText(c.up)}</div><div class="rv">Reversed: ${faceText(c.rv)}</div>
+        <button class="btn sm" data-draft="${id}">Take it</button></div>`}).join('')}</div>
+      <div class="actions"><button class="btn ghost" id="skip">Take nothing</button></div>`;
+    st.querySelectorAll('[data-draft]').forEach(b=>b.onclick=()=>draftPick(b.dataset.draft));
+    $('#skip').onclick=()=>draftPick(null);return;
+  }
+  if(s==='reading'){
+    const used=S.reading.filter(r=>r.anchored).length,mx=anchorsMax(),om=omens(),bossFloor=S.floor===FLOORS;
+    const slots=S.reading.map((r,i)=>{
+      const f=cardFace(r),txt=f.fx?fxText(scaleFx(f.fx,posMult(i))):f.txt;
+      const note=bossFloor&&i===2?'Half again as strong.':i===0&&S.revealed&&spareAnchors()>0?'Full strength: a spare anchor writes the past firmer.':POS[i].note;
+      let ctrl='';
+      if(S.revealed){
+        const b=[];
+        if(f.inst)b.push('<div class="anchor-note">Took effect</div>');
+        else if(i===0)b.push('<div class="anchor-note"><b>Written</b></div>');
+        else b.push(`<button class="btn sm ${r.anchored?'on':'ghost'}" data-a="${i}" ${!r.anchored&&used>=mx?'disabled':''} aria-pressed="${r.anchored}">${r.anchored?'Fixed':'Fix in reality'}</button>`);
+        if(canTurn(r))b.push(`<button class="btn sm blood" data-turn="${i}" ${S.hero.hp<=TURN_COST?'disabled':''}>${r.rev?'Upright':'Reverse'} · ${TURN_COST} HP</button>`);
+        if(S.recasts>0&&S.pile.length)b.push(`<button class="btn sm ghost" data-recast="${i}">Recast</button>`);
+        b.push(`<div class="moves"><button class="btn sm ghost" data-move="${i}" data-d="-1" ${i===0?'disabled':''} aria-label="Move left">◀</button><button class="btn sm ghost" data-move="${i}" data-d="1" ${i===2?'disabled':''} aria-label="Move right">▶</button></div>`);
+        ctrl=`<div class="ctrls">${b.join('')}</div>`;
+      }
+      return `<div class="slot"><div class="pos">${POS[i].name}</div><div class="posnote">${note}</div>${cardHTML(r,{down:!S.revealed||S.flip===i})}
+        <div class="meaning">${S.revealed?`<em class="${r.rev?'':'up'}">REVERSED</em>${txt}`:''}</div>${ctrl}</div>`}).join('');
+    const boss=bossFloor?`<div class="bossread"><div class="row mini">${S.bossCards.map(id=>cardHTML({id},{foe:true})).join('')}</div>
+      <div class="t"><b>The Chronarch's reading.</b> He holds ${S.bossCards.map(id=>`${C(id).name} (${fxText(scaleFx(ENEMY_ARCANA[id],BOSS_CARD_MULT))})`).join(' and ')}. Fix a matching card and his copy shatters.</div></div>`:'';
+    const ef=S.echo&&cardFace(S.echo);
+    const echoBox=S.echo&&ef.fx?`<div class="echo"><div class="row mini">${cardHTML(S.echo)}</div>
+      <div class="t"><b>An echo of what was.</b> Last floor's future returns: ${C(S.echo.id).name}${S.echo.rev?' (reversed)':''}, ${fxText(scaleFx(ef.fx,ECHO_MULT))}. It is fixed and needs no anchor.</div></div>`:'';
+    const omenBox=om.length?`<div class="omens"><div class="lbl" style="margin:0">Omens in this spread</div>${om.map(o=>`<div class="o"><b>${o.name}</b><span>${omenText(o)}</span></div>`).join('')}</div>`:'';
+    st.innerHTML=`<h2>${bossFloor?'The Stilled Hour: the last reading':roman(S.floor)+' · '+floorName(S.floor)}</h2>
+      <p class="lead">${!S.revealed?`Three cards from your deck of ${S.deck.length}, laid face down.`:bossFloor?'You stand at his door, fully restored. Arrange your last spread; every loose card is a card he can take.':'Arrange the spread, choose what to fix, recast a card, or pay in blood to turn one.'}</p>
+      ${boss}
+      ${echoBox}
+      <div class="spread player">${slots}</div>
+      ${omenBox}
+      ${S.revealed?`<div class="anchor-note">Anchors: <b>${used}</b> of ${mx}${used<mx?' · spare anchor: What was at full strength':''}${S.recasts<=0?' · Recast used':` · ${S.recasts} recast${S.recasts>1?'s':''}, ${S.pile.length} card${S.pile.length===1?'':'s'} to draw from`}</div>`:''}
+      <div class="actions"><button class="btn" id="b">${!S.revealed?'Turn the cards':bossFloor?'Face the Chronarch':'Descend'}</button></div>`;
+    st.querySelectorAll('[data-a]').forEach(b=>b.onclick=()=>toggleAnchor(+b.dataset.a));
+    st.querySelectorAll('[data-turn]').forEach(b=>b.onclick=()=>turnCard(+b.dataset.turn));
+    st.querySelectorAll('[data-move]').forEach(b=>b.onclick=()=>moveCard(+b.dataset.move,+b.dataset.d));
+    st.querySelectorAll('[data-recast]').forEach(b=>b.onclick=()=>recast(+b.dataset.recast));
+    $('#b').onclick=S.revealed?descend:(e=>{e.target.disabled=true;reveal()});
+    if(S.flip>=0){const el=st.querySelectorAll('.spread.player .tarot')[S.flip];S.flip=-1;requestAnimationFrame(()=>requestAnimationFrame(()=>el&&el.classList.remove('down')))}
+    return;
+  }
+  if(s==='battle'){
+    const e=S.foe,p=S.play,ev0=p.ev[0],boss=p.boss,stx=stats(ev0.act);
+    const drift=boss?'He unwrites a loose card every 2nd round · Rewinds his wounds every 4th':`Time ripple chance: ${Math.round((.08*S.floor+stx.drift)*100)}% per round`;
+    const bears=[...e.arcana.map(id=>`Bears ${C(id).name}`),...e.void.map(id=>`<s>${C(id).name}</s> shattered`)].join(' · ');
+    st.innerHTML=`<h2>${boss?'The Chronarch':floorName(S.floor)+' · '+(S.fight===1?'the arcanum-bearer':'fight 1 of '+FIGHTS)}</h2>
+      <div class="duel">
+        <div class="side"><h3>You</h3><div class="hp-row"><span>HP</span><span id="hpHt">${ev0.hp} / ${ev0.maxHp}</span></div><div class="bar"><i id="hpH" style="width:${pct(ev0.hp/ev0.maxHp)}"></i></div></div>
+        <div class="vs">against</div>
+        <div class="side foe"><h3>${e.name}</h3><div class="hp-row"><span>HP</span><span id="hpEt">${e.maxHp} / ${e.maxHp}</span></div><div class="bar foe"><i id="hpE" style="width:100%"></i></div>
+          <div class="cmp">ATK ${e.atk} · DEF ${e.def} · SPD ${e.spd}</div>${bears?`<div class="bears">${bears}</div>`:''}</div>
+      </div>
+      <div class="drift">${drift}</div>
+      <div class="log" id="log" role="log"></div>
+      <div class="actions" id="battleActions"><span class="row"><button class="btn sm ghost on" data-speed="1">1×</button><button class="btn sm ghost" data-speed="3">3×</button><button class="btn sm ghost" id="sk">Skip to the end</button></span></div>`;
+    st.querySelectorAll('[data-speed]').forEach(b=>b.onclick=()=>setSpeed(+b.dataset.speed));
+    $('#sk').onclick=skip;renderHud(ev0);return;
+  }
+  if(s==='loot'){
+    const L=S.loot,it=L.item;
+    let body=`<p>You gather <span class="gold">${L.gold} gold</span>.${L.tax?` <span class="ctxt">Spent Coin takes ${L.tax} of it.</span>`:''}${L.breath?` You catch your breath and recover ${L.breath} HP.`:''}</p>`,act='';
+    if(L.claim){const c=C(L.claim);
+      body+=`<div class="claim">${cardHTML({id:L.claim})}<div class="t"><span class="lbl" style="margin:0">Its card lies on the floor</span>
+        <span style="font-family:var(--f-display);font-size:1.25rem">${c.name}</span>
+        <span>Upright: ${faceText(c.up)}</span><span class="cmp">Reversed: ${faceText(c.rv)}</span>
+        <span class="cmp">You hold ${S.deck.filter(x=>x===L.claim).length} already. Three of the same card can be fused into an Exalted form at the Waystation.</span></div></div>`;
+      act=`<button class="btn" id="cl">Claim it for your deck</button><button class="btn ghost" id="c">Leave it</button>`}
+    else if(!it)act=`<button class="btn" id="c">Press on</button>`;
+    else if(it.kind==='gear'){const cur=S.gear[it.slot];
+      body+=`<div class="item ${it.cursed?'cursed':''}"><span class="k">${it.slot} · ${tierTag(it.tier)}${curseTag(it)}</span><span class="n">${gearName(it)}</span><span class="d">${fxText(it.fx)}</span>
+        <span class="twist">${TWISTS[it.base].txt}</span><span class="aff">${affText(it)}</span>${it.cursed?`<span class="ctxt">Curse of the ${it.cursed.name}: ${it.cursed.txt}</span>`:''}
+        <span class="cmp">${cur?(cur.cursed?'Replaces your cursed '+cur.base+'.':'Replaces '+gearName(cur)+' ('+fxText(cur.fx)+'), which sells for '+itemValue(cur)+' gold'):'Your '+it.slot+' slot is empty.'}</span></div>`;
+      if(it.cursed){body+=`<p class="lead">It is stronger than its tier, and it binds to you the moment you touch it. Sygfrun, the Smith at the Waystation, can forge the curse out.</p>`;act=`<button class="btn" id="eq">Take it up</button>`}
+      else act=`<button class="btn" id="eq">Equip</button><button class="btn ghost" id="sl">Sell for ${itemValue(it)} gold</button>`}
+    else{body+=`<div class="item"><span class="k">spell · minor arcana</span><span class="n">${it.name}</span><span class="d">${it.txt}</span>
+        <span class="cmp">${S.spells.length<2?'You can carry two spells.':'Both spell slots are full. Choose one to replace.'}</span></div>`;
+      act=(S.spells.length<2?`<button class="btn" id="eq">Learn it</button>`:S.spells.map((sp,i)=>`<button class="btn" data-r="${i}">Replace ${sp.name}</button>`).join(''))+`<button class="btn ghost" id="sl">Sell for ${itemValue(it)} gold</button>`}
+    st.innerHTML=`<h2>Spoils</h2>${body}<div class="actions">${act}</div>`;
+    if($('#cl'))$('#cl').onclick=()=>{S.deck.push(L.claim);afterLoot()};
+    if($('#c'))$('#c').onclick=afterLoot;
+    if($('#eq'))$('#eq').onclick=()=>equip(null);
+    if($('#sl'))$('#sl').onclick=sellLoot;
+    st.querySelectorAll('[data-r]').forEach(b=>b.onclick=()=>equip(+b.dataset.r));return;
+  }
+  if(s==='shop'){
+    const sh=S.shop;
+    const gearHtml=sh.gear.map((g,i)=>{const it=g.item,cur=S.gear[it.slot];return `<div class="item"><span class="k">${it.slot} · ${tierTag(it.tier)}</span><span class="n">${gearName(it)}</span><span class="d">${fxText(it.fx)}</span><span class="twist">${TWISTS[it.base].txt}</span><span class="aff">${affText(it)}</span>
+          <span class="cmp">${cur?'You wear: '+gearName(cur)+' ('+fxText(cur.fx)+')':'Slot empty'}</span>
+          <div class="row" style="margin-top:auto;padding-top:6px">${g.sold?'<span class="anchor-note">Equipped</span>':`<button class="btn sm" data-bg="${i}" ${S.gold<g.price?'disabled':''}>Buy · ${g.price}g</button>`}</div></div>`}).join('');
+    const gc=gearRerollCost();
+    const wares=sh.offers.map((o,i)=>{const c=C(o.id);return `<div class="ware">${cardHTML({id:o.id})}
+      <div class="meaning">${faceText(c.up)}</div><div class="rv">Reversed: ${faceText(c.rv)}</div>
+      ${o.sold?'<div class="anchor-note">Added to deck</div>':`<button class="btn sm" data-buy="${i}" ${S.gold<o.price?'disabled':''}>Buy · ${o.price}g</button>`}</div>`}).join('');
+    const forgeRows=['weapon','armor','trinket'].map(k=>{const x=S.gear[k];
+      if(!x)return `<div class="li"><span><span class="empty">No ${k} to reforge</span></span></div>`;
+      const max=x.tier>=MAXT,next=max?null:gearFx(k,x.tier+1,x.base);
+      const note=x.cursed?`<span class="ctxt">Forge out the ${x.cursed.name} (${x.cursed.txt}). Stats stay as they are.</span>`:`<span class="cmp">${max?'Fully forged':fxText(x.fx)+' → '+fxText(next)}</span>`;
+      return `<div class="li"><span><span>${gearName(x)} ${tierTag(x.tier)}${curseTag(x)}</span>${note}</span>
+        ${max?'':`<button class="btn sm" data-forge="${k}" ${S.gold<forgeCost(x.tier)?'disabled':''}>${x.cursed?'Cleanse':'Reforge'} · ${forgeCost(x.tier)}g</button>`}</div>`}).join('');
+    const counts={};S.deck.filter(x=>!isEx(x)).forEach(x=>counts[x]=(counts[x]||0)+1);
+    const fusable=Object.keys(counts).filter(k=>counts[k]>=3);
+    const near=Object.keys(counts).filter(k=>counts[k]===2).map(k=>C(k).name);
+    const fuseHtml=fusable.length?`<div class="fuse">${fusable.map(id=>{const x=C(id+'*');return `<div class="ware">${cardHTML({id:id+'*'})}
+        <div class="meaning">${faceText(x.up)}</div><div class="rv">Reversed: ${faceText(x.rv)}</div>
+        <button class="btn sm" data-fuse="${id}">Fuse three ${C(id).name}</button></div>`}).join('')}</div>`
+      :`<p class="cmp">You need three copies of one card to fuse. ${near.length?'One more of '+near.join(' or ')+' would do it.':'No pairs yet.'}</p>`;
+    const burnList=S.deck.map((id,i)=>`<button class="btn sm ghost" data-burn="${i}" ${S.gold<5||S.deck.length<=3?'disabled':''}>${C(id).name}</button>`).join('');
+    st.innerHTML=`<h2>The Waystation</h2>
+      <p class="lead">A fire that burns at the same height forever. You rest and recover ${sh.rested} HP.</p>
+      <div class="sec"><div class="lbl">Astrydd, the Pawnbroker</div>
+        <p class="cmp">She sells cards she can't read, scavenged from the dead. Each reading draws 3 cards, and every card you add makes the others come up less often, so build toward the omens you want.</p>
+        <div class="wares">${wares}</div>
+        <div class="row"><button class="btn sm ghost" id="rc" ${sh.cardRerolled||S.gold<CARD_REROLL_COST||sh.offers.every(o=>o.sold)?'disabled':''}>${sh.cardRerolled?'Already asked for more':'Ask for other cards · '+CARD_REROLL_COST+'g'}</button><span class="cmp">Once per visit.</span></div>
+        <div class="row"><button class="btn sm" id="pot" ${S.gold<10||!sh.potions?'disabled':''}>Tonic: heal 12 HP · 10g</button><span class="cmp">${sh.potions} left</span></div></div>
+      <div class="sec"><div class="lbl">By the fire · fuse three into one</div>${fuseHtml}
+        <p class="cmp">Three readers once fixed the same truth; laid together, their agreement becomes an Exalted card with both faces doubled. Fusing also thins your deck.</p></div>
+      <div class="sec"><div class="lbl">By the fire · burn a card · 5g each</div><div class="burn">${burnList}</div>${S.deck.length<=3?'<p class="cmp">Your deck needs at least 3 cards.</p>':''}</div>
+      <div class="sec"><div class="lbl">Sygfrun, the Smith</div>
+        <p class="cmp">Ispyria's last smith works still-iron, taken from stopped clockwork.</p>
+        <div class="items">${gearHtml}</div>
+        <div class="row"><button class="btn sm ghost" id="rg" ${S.gold<gc||sh.gear.every(o=>o.sold)?'disabled':''}>Show other gear · ${gc}g</button><span class="cmp">Each look costs half again as much as the last.</span></div>
+        <div class="forge">${forgeRows}</div>
+        <p class="cmp">Reforging raises a piece one tier. Forging a cursed piece burns the curse out instead.</p></div>
+      <div class="actions"><button class="btn" id="nx">${S.floor+1===FLOORS?'Descend to the Stilled Hour':'Descend to '+floorName(S.floor+1)}</button></div>`;
+    st.querySelectorAll('[data-buy]').forEach(b=>b.onclick=()=>buyCard(+b.dataset.buy));
+    st.querySelectorAll('[data-fuse]').forEach(b=>b.onclick=()=>fuse(b.dataset.fuse));
+    st.querySelectorAll('[data-burn]').forEach(b=>b.onclick=()=>burn(+b.dataset.burn));
+    st.querySelectorAll('[data-forge]').forEach(b=>b.onclick=()=>forge(b.dataset.forge));
+    st.querySelectorAll('[data-bg]').forEach(b=>b.onclick=()=>buyGear(+b.dataset.bg));
+    $('#rc').onclick=rerollCards;$('#rg').onclick=rerollGear;
+    $('#pot').onclick=buyPotion;$('#nx').onclick=nextFloor;return;
+  }
+  if(s==='win'||s==='lose'){
+    const win=s==='win';
+    st.innerHTML=`<h2>${win?'The clock starts again':'Unwritten'}</h2>
+      <p>${win?'The Chronarch comes apart like a dropped watch. Somewhere above, in Ispyria, the cathedral clock twitches and moves.':`You fell in ${floorName(S.floor)}. The Chronarch unwrites you, but your teacher's anchor holds: you wake at Ispyria's gate with the reading reset.`}</p>
+      <p class="cmp">Foes defeated: ${S.kills+(win?1:0)} · Final deck: ${S.deck.length} cards · Gold left: ${S.gold}</p>
+      ${T.on?(S.fbSent?'<div class="fb"><p class="thanks">Thank you. Your note reached the reader.</p></div>':`<div class="fb">
+        <div class="lbl" style="margin:0">Playtest feedback</div>
+        <p class="cmp">Would you play a full version of this game?</p>
+        <div class="row">${['yes','maybe','no'].map(v=>`<button class="btn sm ${S.interest===v?'on':'ghost'}" data-int="${v}" aria-pressed="${S.interest===v}">${v[0].toUpperCase()+v.slice(1)}</button>`).join('')}</div>
+        <label class="cmp" for="fbMsg">Anything confusing, too hard, too easy, or fun? (optional)</label>
+        <textarea id="fbMsg" maxlength="2000" placeholder="What did you think?">${S.fbDraft||''}</textarea>
+        <div class="row"><button class="btn sm" id="fbSend">Send feedback</button></div></div>`):''}
+      <div class="actions"><button class="btn" id="b">Begin another descent</button></div>`;
+    $('#b').onclick=newRun;
+    st.querySelectorAll('[data-int]').forEach(b=>b.onclick=()=>{S.fbDraft=$('#fbMsg').value;S.interest=b.dataset.int;render()});
+    if($('#fbSend'))$('#fbSend').onclick=sendFeedback;
+  }
+}
+render();
+</script>
+</body>
+</html>
+

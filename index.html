@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Tarot in Time v7</title>
+<title>Tarot in Time v7.1</title>
 <meta name="description" content="A tarot autobattler prototype. Playtest build.">
 <script>
   window.va = window.va || function () { (window.vaq = window.vaq || []).push(arguments); };
@@ -189,6 +189,14 @@ button:focus-visible{outline:2px solid var(--aether);outline-offset:2px}
 .deckc .row{gap:6px}
 .deckc .mini .tarot{width:58px}
 .aff{color:var(--aether);font-size:.85rem}
+.moonbox{display:flex;gap:16px;align-items:center;border:1px solid var(--line);border-radius:6px;padding:12px 16px;background:var(--panel2);max-width:640px}
+.moonbox .t{display:flex;flex-direction:column;gap:2px;min-width:0}
+.moonbox b{font-family:var(--f-display);font-weight:400;color:var(--fg);font-size:1.2rem}
+.moonsvg{flex:none}
+.moonbox.off .moonsvg{opacity:.4}
+.moonbox .row{margin-top:6px}
+.moonhud{display:flex;gap:10px;align-items:center;font-size:.9rem}
+.moonhud b{font-family:var(--f-display);font-weight:400}
 .items{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,240px),1fr));gap:14px;max-width:900px}
 .items .item{max-width:none}
 @media (prefers-reduced-motion:reduce){.tarot .inner,.tarot .face,.bar>i{transition:none!important}}
@@ -204,7 +212,7 @@ button:focus-visible{outline:2px solid var(--aether);outline-offset:2px}
 
 <div class="wrap">
   <header class="top">
-    <div><h1>Tarot in Time</h1><div class="sub">A tarot autobattler prototype · v7</div></div>
+    <div><h1>Tarot in Time</h1><div class="sub">A tarot autobattler prototype · v7.1</div></div>
     <div class="track" id="track"></div>
   </header>
   <div class="grid">
@@ -221,7 +229,7 @@ button:focus-visible{outline:2px solid var(--aether);outline-offset:2px}
 const PLAYTEST={
   url:'https://uxaxpahzoxadjtasxepn.supabase.co',
   key:'sb_publishable_QmzEaBdh7iLGcr-T4rM7_A_0dTZGjIx',
-  build:'v7',            // bump this whenever you ship a balance change, so results stay comparable
+  build:'v7.1',            // bump this whenever you ship a balance change, so results stay comparable
 };
 const T=(()=>{
   const on=!PLAYTEST.url.includes('YOUR-PROJECT')&&!PLAYTEST.key.startsWith('YOUR_');
@@ -354,6 +362,36 @@ const BREATH=.15;                   // HP recovered after each won fight
 const ECHO_MULT=.5;                 // last floor's future returns as an echo at this strength
 const AFFINITY_MULT=1.5;            // attuned gear: matching card's buff ×1.5 while active
 const AFFINITY_FROM_DECK=.7;        // chance attuned gear names a card already in your deck
+/* Moon phases: each run takes the real moon's phase when it starts (pass 3 of the moon tuning, see sim/MOON.md).
+   Phase = days since a known new moon, modulo the synodic month, in eight buckets. No network needed. */
+const SYNODIC=29.530588853, KNOWN_NEW_MOON=Date.UTC(2000,0,6,18,14);
+const MOONS=[
+  {key:'new',name:'New Moon',omen:'The sky is dark. You move unseen, but he gathers strength in the dark.',mod:{spd:2,atk:-1},bossMult:1.1},
+  {key:'wax_cres',name:'Waxing Crescent',omen:'A thin light. Coin finds you, and the body pays for it.',mod:{gold:12,maxHp:-3}},
+  {key:'first_q',name:'First Quarter',omen:'Half lit, half dark. Your hand is surer and your step heavier.',mod:{atk:1,spd:-2}},
+  {key:'wax_gib',name:'Waxing Gibbous',omen:'The light swells. Your strikes land harder, and your purse runs thin.',mod:{atk:1,gold:-12}},
+  {key:'full',name:'Full Moon',omen:'Full light shows what he hides. He is weaker, but the deep is awake.',mod:{},bossMult:.8,foeMult:1.03},
+  {key:'wan_gib',name:'Waning Gibbous',omen:'The light recedes. You endure more and strike softer.',mod:{maxHp:3,atk:-1}},
+  {key:'last_q',name:'Last Quarter',omen:'Half lit again. You endure more and move slower.',mod:{maxHp:3,spd:-2}},
+  {key:'wan_cres',name:'Waning Crescent',omen:'The last sliver. Coin finds you, and your step drags.',mod:{gold:12,spd:-2}},
+];
+/* "Consult the sky / ignore the sky": an ignored sky gives no moon modifiers. The choice is remembered in this browser. */
+const NO_MOON={key:'ignored',name:'Sky ignored',omen:'',mod:{}};
+let SKY_ON=(()=>{try{return localStorage.getItem('tit_sky')!=='ignore'}catch(e){return true}})();
+function setSky(on){SKY_ON=on;try{localStorage.setItem('tit_sky',on?'consult':'ignore')}catch(e){}render()}
+function moonNow(t=Date.now()){const age=(((t-KNOWN_NEW_MOON)/864e5)%SYNODIC+SYNODIC)%SYNODIC;return MOONS[Math.floor(age/SYNODIC*8+.5)%8]}
+function moonText(m){const d=m.mod,p=[];   // [helps the player?, text]; buffs listed first
+  if(d.spd)p.push([d.spd>0,`${sg(d.spd)}${Math.abs(d.spd)} SPD`]);if(d.atk)p.push([d.atk>0,`${sg(d.atk)}${Math.abs(d.atk)} ATK`]);
+  if(d.maxHp)p.push([d.maxHp>0,`${sg(d.maxHp)}${Math.abs(d.maxHp)} max HP`]);if(d.gold)p.push([d.gold>0,`${sg(d.gold)}${Math.abs(d.gold)} starting gold`]);
+  if(m.bossMult)p.push([m.bossMult<1,`the Chronarch ${m.bossMult>1?'+':'−'}${Math.round(Math.abs(m.bossMult-1)*100)}% HP`]);
+  if(m.foeMult)p.push([false,`foes on floors I–IV +${Math.round((m.foeMult-1)*100)}% HP and ATK`]);
+  return p.sort((x,y)=>y[0]-x[0]).map(x=>x[1]).join(', ')}
+/* A small drawn moon for the phase: dark disc, lit part from two arcs. */
+function moonSVG(m,size=28){if(m.key==='ignored')return `<svg class="moonsvg" width="${size}" height="${size}" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10" fill="none" stroke="var(--line)" stroke-width="1" stroke-dasharray="2 2"/></svg>`;
+  const i=MOONS.indexOf(m),a=i/8*2*Math.PI,r=10,c=12,k=Math.cos(a),rx=(r*Math.abs(k)).toFixed(2),wax=a<Math.PI;
+  const outer=wax?1:0,inner=wax?(k>0?0:1):(k>0?1:0);
+  const lit=i===0?'':`<path d="M${c} ${c-r} A${r} ${r} 0 0 ${outer} ${c} ${c+r} A${rx} ${r} 0 0 ${inner} ${c} ${c-r}Z" fill="var(--fg)"/>`;
+  return `<svg class="moonsvg" width="${size}" height="${size}" viewBox="0 0 24 24" aria-hidden="true"><circle cx="${c}" cy="${c}" r="${r}" fill="var(--panel2)" stroke="var(--gilt-dim)" stroke-width="1"/>${lit}</svg>`}
 const AFF_POOL=['magician','priestess','empress','emperor','hierophant','lovers','chariot','strength','hermit','wheel','justice','hanged','death','devil','tower','star','moon','sun','judgement'];
 
 const TIERS=[{name:'Tarnished',r:'I'},{name:'Tempered',r:'II'},{name:'Gilded',r:'III'},{name:'Chronoforged',r:'IV'}];
@@ -407,6 +445,10 @@ function newRun(){
      gear:{weapon:null,armor:null,trinket:null},spells:[],
      deck:[],buffs:[],reading:[],pile:[],revealed:false,recastUsed:false,recasts:1,revived:false,bossCards:[],echo:null,carry:null,
      screen:'deck',startedAt:Date.now(),readLog:[],logged:false,runId:null,interest:null,fbSent:false};
+  S.moon=SKY_ON?moonNow():NO_MOON;const d=S.moon.mod,h=S.hero;
+  if(d.gold)S.gold=Math.max(0,S.gold+d.gold);
+  if(d.maxHp){h.maxHp+=d.maxHp;h.hp=h.maxHp}
+  if(d.atk)h.atk+=d.atk;if(d.spd)h.spd=Math.max(1,h.spd+d.spd);
   render();
 }
 function chooseDeck(k){S.deck=[...START_DECKS[k].cards];S.deckName=k;
@@ -498,7 +540,7 @@ const posMult=i=>i===0&&spareAnchors()>0?1:POS[i].m;
 function descend(){
   const before=stats().maxHp;
   for(const o of omens())if(o.gold)S.gold+=o.gold;
-  S.readLog.push({floor:S.floor,spread:S.reading.map(r=>({card:r.id,rev:r.rev,fixed:!!r.anchored})),echo:S.echo?S.echo.id:null,omens:omens().map(o=>o.name)});
+  S.readLog.push({floor:S.floor,moon:S.moon?S.moon.key:null,spread:S.reading.map(r=>({card:r.id,rev:r.rev,fixed:!!r.anchored})),echo:S.echo?S.echo.id:null,omens:omens().map(o=>o.name)});
   S.buffs=[];
   S.reading.forEach((r,i)=>{const f=cardFace(r);if(!f.fx)return;
     S.buffs.push({id:r.id,name:C(r.id).name,rev:r.rev,pos:i,fx:scaleFx(f.fx,posMult(i)),anchored:i===0||r.anchored,past:i===0,future:i===2,active:true})});
@@ -510,7 +552,7 @@ function descend(){
 
 /* ================= combat ================= */
 function makeFoe(elite){
-  const [name,hp,atk,def,spd]=pick(FOES),m=(1+FOE_SCALE*(S.floor-1))*(FLOOR_BOOST[S.floor]||1),mh=Math.round(hp*m*(elite?1+.1*S.floor:1));
+  const [name,hp,atk,def,spd]=pick(FOES),m=(1+FOE_SCALE*(S.floor-1))*(FLOOR_BOOST[S.floor]||1)*((S.moon&&S.moon.foeMult)||1),mh=Math.round(hp*m*(elite?1+.1*S.floor:1));
   const e={name,maxHp:mh,hp:mh,atk:Math.round(atk*m),def:Math.round(def*(1+FOE_SCALE*(S.floor-1))),spd:spd+S.floor-1,crit:0,regen:0,reflect:0,revive:0,arcana:[],void:[]};
   if(elite){const id=pick(Object.keys(ENEMY_ARCANA));e.arcana.push(id);applyArcana(e,id,arcanaMult(S.floor))}
   return e;
@@ -578,8 +620,10 @@ function startFight(){
   const boss=S.floor===FLOORS,intro=[];
   let e;
   if(boss){
-    e={...BOSS,hp:BOSS.maxHp,crit:0,regen:0,reflect:0,revive:0,arcana:[],void:[]};
+    const bhp=Math.round(BOSS.maxHp*((S.moon&&S.moon.bossMult)||1));
+    e={...BOSS,maxHp:bhp,hp:bhp,crit:0,regen:0,reflect:0,revive:0,arcana:[],void:[]};
     intro.push(['The Chronarch turns his own cards.','sys']);
+    if(S.moon&&S.moon.bossMult)intro.push([S.moon.bossMult<1?'The full moon finds him. He is weaker in its light.':'The new moon hides him. He has gathered strength in the dark.','time']);
     for(const id of S.bossCards){
       const mirror=S.buffs.find(b=>baseId(b.id)===id&&b.active&&b.anchored);
       if(mirror){e.void.push(id);intro.push([`Your fixed ${C(id).name} mirrors his. Reality cannot hold both, and his copy shatters.`,'card'])}
@@ -695,6 +739,7 @@ function renderHud(snap){
   const gear=['weapon','armor','trinket'].map(k=>{const g=S.gear[k];return `<div class="li"><span>${g?gearName(g)+' '+tierTag(g.tier)+curseTag(g):'<span class="empty">No '+k+'</span>'}</span><span class="fx">${g?fxText(g.fx)+(g.cursed?`<br><span class="ctxt">${g.cursed.txt}</span>`:'')+(g.aff?`<br><span class="aff">Attuned: ${C(g.aff).name}${S.buffs.some(b=>b.active&&!b.omen&&!dormant(b)&&baseId(b.id)===g.aff)?' · active':''}</span>`:''):''}</span></div>`}).join('');
   const spells=S.spells.length?S.spells.map(s=>`<div class="li"><span>${s.name}</span><span class="fx">${s.txt.replace('Every ','every ')}</span></div>`).join(''):'<div class="empty">None yet. Spells drop from foes.</div>';
   $('#hud').innerHTML=`
+    ${S.moon?`<div class="moonhud">${moonSVG(S.moon,22)}<span><b>${S.moon.name}</b><br><span class="cmp">${moonText(S.moon)||'No moon modifiers this run'}</span></span></div>`:''}
     <div><div class="lbl">The Wanderer</div>
       <div class="hp-row"><span>HP</span><span>${hp} / ${mx}</span></div>
       <div class="bar"><i style="width:${pct(hp/mx)}"></i></div>
@@ -712,6 +757,9 @@ function render(){
   if(s==='title'){
     st.innerHTML=`<h2>The Chronarch has stopped the clock</h2>
       <p>Ispyria is the last city left. Beneath it, through the Cathedral Below, the Ossuary of the Unwound, the Old City and the Escapement, time has pooled and gone still. The Chronarch waits at the bottom, in the Stilled Hour, unwriting anyone who comes near. Your only defense is your teacher's deck: what the cards fix in place, he cannot take back.</p>
+      ${(()=>{const m=moonNow();return `<div class="moonbox${SKY_ON?'':' off'}">${moonSVG(m,48)}<div class="t"><span class="lbl" style="margin:0">Tonight's sky</span><b>${m.name}</b>
+        ${SKY_ON?`<span>${m.omen}</span><span class="cmp">${moonText(m)}</span>`:`<span class="cmp">Ignored. Your runs play without the moon's modifiers.</span>`}
+        <div class="row" role="group" aria-label="Moon modifiers"><button class="btn sm ${SKY_ON?'on':'ghost'}" id="skyOn" aria-pressed="${SKY_ON}">Consult the sky</button><button class="btn sm ${SKY_ON?'ghost':'on'}" id="skyOff" aria-pressed="${!SKY_ON}">Ignore the sky</button></div></div></div>`})()}
       <dl class="how">
         <div><dt>Your deck</dt><dd>Choose one of three starting decks, then draft one extra card. All 22 Major Arcana are in the game.</dd></div>
         <div><dt>The spread</dt><dd>Each floor opens with three cards, and you arrange them. <i>What was</i> is half strength but already written, so time can't touch it. <i>What is</i> is full strength. <i>What will be</i> is half again as strong but only arrives for the second fight.</dd></div>
@@ -722,11 +770,12 @@ function render(){
         <div><dt>Attuned gear</dt><dd>Every piece of gear is attuned to an arcanum. While that card is active, its effect is ×${AFFINITY_MULT}.</dd></div>
         <div><dt>Fusion</dt><dd>Three copies of one card can be fused at the Waystation into an Exalted card, doubling both faces.</dd></div>
         <div><dt>Arcana</dt><dd>The second foe on each floor carries a card of its own. Defeat it and you may claim that card for your deck.</dd></div>
+        <div><dt>The moon</dt><dd>Each run takes the real moon's phase. Every phase gives a buff and a debuff; under a full moon the Chronarch is weaker but the floors above him are harsher. Ignore the sky to play without them.</dd></div>
         <div><dt>The Chronarch</dt><dd>He draws his own two cards, shown before your last reading. Fix the same card he holds (an echo counts) and his copy shatters. He also unwrites a loose card every other round and rewinds his wounds every fourth.</dd></div>
       </dl>
       <div class="actions"><button class="btn" id="b">Begin the descent</button></div>
       ${T.on?'<p class="privacy">Playtest build: anonymous run stats (floor reached, cards, win or loss) are recorded to help balance the game. No names or personal details.</p>':''}`;
-    $('#b').onclick=newRun;return;
+    $('#b').onclick=newRun;$('#skyOn').onclick=()=>setSky(true);$('#skyOff').onclick=()=>setSky(false);return;
   }
   if(s==='deck'){
     st.innerHTML=`<h2>Choose your deck</h2>
@@ -899,4 +948,3 @@ render();
 </script>
 </body>
 </html>
-
